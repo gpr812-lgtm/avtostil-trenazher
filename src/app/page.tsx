@@ -164,11 +164,9 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  // Нейронный TTS
-  // ♂ Мужской: Microsoft Edge TTS (Дмитрий) — настоящий мужской голос
-  //   Fallback: Google TTS (если Edge упал)
-  // ♀ Женский: Google Translate TTS — стабильный женский голос
-  //   Fallback: Edge TTS Светлана (если Google упал)
+  // Нейронный TTS — всегда через Google Translate (быстро ~100мс, стабильно)
+  // ♂ Мужской: Google TTS + pitch shift вниз через Web Audio API
+  // ♀ Женский: Google TTS как есть
   const playNeuralTTS = useCallback(
     (text: string) => {
       // Останавливаем системный TTS если он был
@@ -177,27 +175,17 @@ export default function Home() {
 
       const voice = neuralVoiceRef.current;
       const isMale = voice === 'male';
+      const voiceName = isMale ? 'Мужской (♂, пониженный)' : 'Женский (♀, Google)';
 
-      // Приоритетный и резервный источники
-      const primaryEndpoint = isMale ? '/api/tts-edge' : '/api/tts-neural';
-      const primaryBody = isMale ? { text, voice: 'male' } : { text };
-      const fallbackEndpoint = isMale ? '/api/tts-neural' : '/api/tts-edge';
-      const fallbackBody = isMale ? { text } : { text, voice: 'female' };
-
-      const voiceName = isMale ? 'Дмитрий (♂, Edge)' : 'Женский (♀, Google)';
       console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
 
-      const tryFetch = async (
-        endpoint: string,
-        body: any,
-        attempt: number,
-        source: string
-      ): Promise<Blob> => {
-        console.log(`[TTS-Neural] ${source} attempt ${attempt}/3, endpoint=${endpoint}`);
-        const res = await fetch(endpoint, {
+      // Только Google TTS — быстро (100мс) и стабильно
+      const tryFetch = async (attempt: number): Promise<Blob> => {
+        console.log(`[TTS-Neural] Attempt ${attempt}/3`);
+        const res = await fetch('/api/tts-neural', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ text }),
         });
 
         if (!res.ok) {
@@ -212,45 +200,41 @@ export default function Home() {
         return blob;
       };
 
-      const trySource = async (endpoint: string, body: any, source: string): Promise<Blob> => {
+      // Только 2 попытки — Google обычно работает с первого раза
+      const fetchWithRetry = async (): Promise<Blob> => {
         let lastError: Error | null = null;
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
           try {
-            return await tryFetch(endpoint, body, attempt, source);
+            return await tryFetch(attempt);
           } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
-            console.warn(`[TTS-Neural] ${source} attempt ${attempt} failed:`, lastError.message);
-            if (attempt < 3) {
-              await new Promise((r) => setTimeout(r, 300 * attempt));
+            console.warn(`[TTS-Neural] Attempt ${attempt} failed:`, lastError.message);
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 200));
             }
           }
         }
         throw lastError;
       };
 
-      // Сначала пробуем основной источник, потом — резервный
-      const tryWithFallback = async (): Promise<Blob> => {
-        try {
-          console.log(`[TTS-Neural] Trying primary: ${primaryEndpoint}`);
-          return await trySource(primaryEndpoint, primaryBody, 'Primary');
-        } catch (primaryErr) {
-          console.warn(`[TTS-Neural] Primary failed, trying fallback: ${fallbackEndpoint}`);
-          try {
-            const blob = await trySource(fallbackEndpoint, fallbackBody, 'Fallback');
-            console.log(`[TTS-Neural] Fallback succeeded!`);
-            return blob;
-          } catch (fallbackErr) {
-            console.error(`[TTS-Neural] Both sources failed`);
-            throw fallbackErr;
+      fetchWithRetry()
+        .then(async (blob) => {
+          console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, voice=${voiceName}`);
+
+          // Для мужского голоса — понизим pitch через Web Audio API
+          if (isMale) {
+            try {
+              await playWithPitchShift(blob, 0.75); // 0.75 = понижение на 25%
+              setIsNeuralPlaying(false);
+              return;
+            } catch (err) {
+              console.warn('[TTS-Neural] Pitch shift failed, playing original:', err);
+              // Fallback — играем как есть (женский голос)
+            }
           }
-        }
-      };
 
-      tryWithFallback()
-        .then((blob) => {
-          console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, playing ${voiceName}`);
+          // Обычное воспроизведение (женский голос)
           const url = URL.createObjectURL(blob);
-
           const playAudio = (audio: HTMLAudioElement): Promise<void> => {
             audio.src = url;
             audio.onended = () => {
@@ -277,7 +261,7 @@ export default function Home() {
                 setIsNeuralPlaying(false);
                 toast({
                   title: 'Не удалось воспроизвести',
-                  description: 'Кликните куда-нибудь на странице и попробуйте снова. Браузер блокирует автозапуск аудио.',
+                  description: 'Кликните куда-нибудь на странице и попробуйте снова.',
                   variant: 'destructive',
                 });
               });
@@ -295,21 +279,53 @@ export default function Home() {
           }
         })
         .catch((err) => {
-          console.error('[TTS-Neural] All sources failed:', err.message);
+          console.error('[TTS-Neural] All retries failed:', err.message);
           setIsNeuralPlaying(false);
-          // Если интернет работает — это может быть блокировка autoplay или проблема сети
-          const isNetworkErr = err.message.includes('HTTP') || err.message.includes('Failed to fetch');
           toast({
-            title: 'Не получилось озвучить нейро-голосом',
-            description: isNetworkErr
-              ? `Сервер TTS не ответил: ${err.message.slice(0, 80)}. Переключитесь на режим «ОС» — он работает офлайн.`
-              : `Все источники TTS не ответили. Кликните по странице и попробуйте ещё раз, либо переключитесь на режим «ОС».`,
+            title: 'Нейронный голос недоступен',
+            description: `Google TTS не ответил. Проверьте интернет или переключитесь на режим «ОС».`,
             variant: 'destructive',
           });
         });
     },
     [cancelTTS]
   );
+
+  // Воспроизведение аудио с изменением pitch (без изменения темпа)
+  // через Web Audio API + playbackRate
+  const playWithPitchShift = async (blob: Blob, rate: number): Promise<void> => {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+    // Разблокируем context, если он suspended (autoplay policy)
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.playbackRate.value = rate; // 0.75 = понижение тона + замедление
+
+    const gain = audioCtx.createGain();
+    gain.gain.value = 1.0;
+
+    source.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    return new Promise((resolve, reject) => {
+      source.onended = () => {
+        audioCtx.close();
+        resolve();
+      };
+      source.onerror = (e) => {
+        audioCtx.close();
+        reject(e);
+      };
+      source.start();
+    });
+  };
 
   // Универсальная функция озвучки: выбирает нейронный или системный
   const playTTS = useCallback(
