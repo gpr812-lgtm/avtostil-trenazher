@@ -180,26 +180,23 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  // Нейронный TTS — Amazon Polly через ttsmp3.com
-  // ♂ Мужской: Maxim (настоящий мужской русский голос)
-  // ♀ Женский: Tatyana (настоящий женский русский голос)
+  // Нейронный TTS — Silero (локально, без лимитов)
+  // ♂ Мужской: aidar (настоящий мужской русский голос)
+  // ♀ Женский: kseniya (женский русский голос)
   const playNeuralTTS = useCallback(
     (text: string) => {
-      // Останавливаем системный TTS если он был
       cancelTTS();
       setIsNeuralPlaying(true);
 
       const voice = neuralVoiceRef.current;
       const isMale = voice === 'male';
-      const voiceName = isMale ? 'Максим (♂, Amazon Polly)' : 'Татьяна (♀, Amazon Polly)';
+      const voiceName = isMale ? 'Айдар (♂, Silero)' : 'Ксения (♀, Silero)';
 
       console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
 
-      // Используем Polly — настоящий мужской и женский голоса
-      let fallbackNotified = false;
       const tryFetch = async (attempt: number): Promise<Blob> => {
         console.log(`[TTS-Neural] Attempt ${attempt}/3`);
-        const res = await fetch('/api/tts-polly', {
+        const res = await fetch('http://localhost:3000/api/tts-silero', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, voice }),
@@ -210,18 +207,6 @@ export default function Home() {
           throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
         }
 
-        // Проверяем — не использован ли fallback (женский голос вместо мужского)
-        const usedFallback = res.headers.get('X-TTS-Fallback');
-        if (usedFallback === 'google' && !fallbackNotified) {
-          fallbackNotified = true;
-          console.warn('[TTS-Neural] Polly limit exceeded, using Google TTS (female voice)');
-          toast({
-            title: 'Лимит мужского голоса исчерпан',
-            description: 'Временно используется женский голос. Мужской восстановится через 24 часа.',
-            variant: 'destructive',
-          });
-        }
-
         const blob = await res.blob();
         if (blob.size < 100) {
           throw new Error(`Слишком маленький ответ: ${blob.size} bytes`);
@@ -229,7 +214,6 @@ export default function Home() {
         return blob;
       };
 
-      // 3 попытки — Polly обычно работает с первого раза
       const fetchWithRetry = async (): Promise<Blob> => {
         let lastError: Error | null = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
@@ -299,7 +283,7 @@ export default function Home() {
           setIsNeuralPlaying(false);
           toast({
             title: 'Нейронный голос недоступен',
-            description: `Amazon Polly не ответил. Проверьте интернет или переключитесь на режим «ОС».`,
+            description: `Silero TTS не ответил. Попробуйте ещё раз.`,
             variant: 'destructive',
           });
         });

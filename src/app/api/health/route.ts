@@ -63,7 +63,34 @@ export async function GET() {
     services.push({ name: 'google_tts', label: 'Запасной голос (Google)', status: 'error' });
   }
 
-  // 5. RUAccent сервер (может загружаться ~20 сек при старте)
+  // 5. Silero TTS сервер (основной мужской/женский голос)
+  let sileroStatus: ServiceStatus = { name: 'silero', label: 'Голоса (Silero TTS)', status: 'loading', detail: 'Загружается...' };
+  try {
+    const res = await fetch('http://127.0.0.1:8766/health', {
+      signal: AbortSignal.timeout(1500),
+    });
+    sileroStatus = {
+      name: 'silero',
+      label: 'Голоса (Silero TTS)',
+      status: res.ok ? 'ok' : 'error',
+    };
+  } catch {
+    // Проверим запущен ли процесс
+    try {
+      const { execSync } = await import('child_process');
+      const output = execSync('pgrep -f silero_server', { encoding: 'utf-8', timeout: 1000 }).trim();
+      if (output) {
+        sileroStatus = { name: 'silero', label: 'Голоса (Silero TTS)', status: 'loading', detail: 'Загружается модель...' };
+      } else {
+        sileroStatus = { name: 'silero', label: 'Голоса (Silero TTS)', status: 'error' };
+      }
+    } catch {
+      sileroStatus = { name: 'silero', label: 'Голоса (Silero TTS)', status: 'error' };
+    }
+  }
+  services.push(sileroStatus);
+
+  // 6. RUAccent сервер (может загружаться ~20 сек при старте)
   let ruaccentStatus: ServiceStatus = { name: 'ruaccent', label: 'Система ударений', status: 'loading', detail: 'Загружается...' };
   for (let attempt = 0; attempt < 3; attempt++) {
     try {

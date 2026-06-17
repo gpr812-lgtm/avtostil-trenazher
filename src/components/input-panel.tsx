@@ -386,7 +386,7 @@ export function InputPanel({
               {ttsMode === 'neural' ? (
                 <>
                   <Sparkles className="w-3 h-3" />
-                  {neuralVoice === 'male' ? 'Максим (♂)' : 'Татьяна (♀)'}
+                  {neuralVoice === 'male' ? 'Айдар (♂)' : 'Ксения (♀)'}
                 </>
               ) : (
                 <>
