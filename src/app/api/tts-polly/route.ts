@@ -402,13 +402,21 @@ export async function POST(req: NextRequest) {
 
     const combined = Buffer.concat(buffers);
 
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': combined.length.toString(),
+      'Cache-Control': 'no-cache',
+    };
+
+    // Если использован fallback — сообщаем клиенту
+    if (pollyFailed) {
+      responseHeaders['X-TTS-Fallback'] = 'google';
+      console.log('[TTS-Polly] Response served with Google TTS fallback (Polly limit exceeded)');
+    }
+
     return new NextResponse(combined, {
       status: 200,
-      headers: {
-        'Content-Type': 'audio/mpeg',
-        'Content-Length': combined.length.toString(),
-        'Cache-Control': 'no-cache',
-      },
+      headers: responseHeaders,
     });
   } catch (error) {
     console.error('Polly TTS API Error:', error);

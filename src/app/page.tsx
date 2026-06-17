@@ -183,6 +183,7 @@ export default function Home() {
       console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
 
       // Используем Polly — настоящий мужской и женский голоса
+      let fallbackNotified = false;
       const tryFetch = async (attempt: number): Promise<Blob> => {
         console.log(`[TTS-Neural] Attempt ${attempt}/3`);
         const res = await fetch('/api/tts-polly', {
@@ -194,6 +195,18 @@ export default function Home() {
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
           throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        }
+
+        // Проверяем — не использован ли fallback (женский голос вместо мужского)
+        const usedFallback = res.headers.get('X-TTS-Fallback');
+        if (usedFallback === 'google' && !fallbackNotified) {
+          fallbackNotified = true;
+          console.warn('[TTS-Neural] Polly limit exceeded, using Google TTS (female voice)');
+          toast({
+            title: 'Лимит мужского голоса исчерпан',
+            description: 'Временно используется женский голос. Мужской восстановится через 24 часа.',
+            variant: 'destructive',
+          });
         }
 
         const blob = await res.blob();
