@@ -46,35 +46,51 @@ export default function Home() {
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
-  const audioUnlockedRef = useRef(false);
 
   // Разблокируем audio при первом взаимодействии пользователя со страницей.
   // Это нужно из-за autoplay policy — без этого audio.play() будет молча падать
   // и может сработать fallback на системный TTS (который звучит робо-)
   useEffect(() => {
+    let unlocked = false;
+
     const unlock = () => {
-      if (audioUnlockedRef.current) return;
+      if (unlocked) return;
+      unlocked = true;
       if (audioRef.current) {
-        // Пробуем play() пустого источника — это разблокирует audio контекст
+        // Создаём тихий сигнал, чтобы разблокировать audio
+        try {
+          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const oscillator = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          gain.gain.value = 0; // Тихо
+          oscillator.connect(gain);
+          gain.connect(audioCtx.destination);
+          oscillator.start();
+          oscillator.stop(audioCtx.currentTime + 0.01);
+          console.log('[Audio] AudioContext unlocked');
+        } catch (e) {
+          console.warn('[Audio] AudioContext unlock failed:', e);
+        }
+
+        // Также разблокируем audio элемент
         audioRef.current.play().then(() => {
           audioRef.current?.pause();
-          audioUnlockedRef.current = true;
-          console.log('[Audio] Unlocked successfully');
-        }).catch(() => {
-          // Даже если ошибка — помечаем как разблокированный, попробуем при следующем клике
-          audioUnlockedRef.current = true;
-        });
+          console.log('[Audio] Audio element unlocked');
+        }).catch(() => {});
       }
     };
 
-    document.addEventListener('click', unlock, { once: true });
-    document.addEventListener('touchstart', unlock, { once: true });
-    document.addEventListener('keydown', unlock, { once: true });
+    // Любое взаимодействие разблокирует
+    document.addEventListener('click', unlock);
+    document.addEventListener('touchstart', unlock);
+    document.addEventListener('keydown', unlock);
+    document.addEventListener('mousedown', unlock);
 
     return () => {
       document.removeEventListener('click', unlock);
       document.removeEventListener('touchstart', unlock);
       document.removeEventListener('keydown', unlock);
+      document.removeEventListener('mousedown', unlock);
     };
   }, []);
 
@@ -150,7 +166,9 @@ export default function Home() {
 
   // Нейронный TTS
   // ♂ Мужской: Microsoft Edge TTS (Дмитрий) — настоящий мужской голос
+  //   Fallback: Google TTS (если Edge упал)
   // ♀ Женский: Google Translate TTS — стабильный женский голос
+  //   Fallback: Edge TTS Светлана (если Google упал)
   const playNeuralTTS = useCallback(
     (text: string) => {
       // Останавливаем системный TTS если он был
@@ -158,15 +176,24 @@ export default function Home() {
       setIsNeuralPlaying(true);
 
       const voice = neuralVoiceRef.current;
-      const voiceName = voice === 'male' ? 'Дмитрий (♂, Edge)' : 'Женский (♀, Google)';
-      const endpoint = voice === 'male' ? '/api/tts-edge' : '/api/tts-neural';
-      const body = voice === 'male' ? { text, voice: 'male' } : { text };
+      const isMale = voice === 'male';
 
-      console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), endpoint=${endpoint}, text="${text.slice(0, 50)}..."`);
+      // Приоритетный и резервный источники
+      const primaryEndpoint = isMale ? '/api/tts-edge' : '/api/tts-neural';
+      const primaryBody = isMale ? { text, voice: 'male' } : { text };
+      const fallbackEndpoint = isMale ? '/api/tts-neural' : '/api/tts-edge';
+      const fallbackBody = isMale ? { text } : { text, voice: 'female' };
 
-      // Retry до 4 попыток
-      const tryFetch = async (attempt: number): Promise<Blob> => {
-        console.log(`[TTS-Neural] Attempt ${attempt}/4`);
+      const voiceName = isMale ? 'Дмитрий (♂, Edge)' : 'Женский (♀, Google)';
+      console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
+
+      const tryFetch = async (
+        endpoint: string,
+        body: any,
+        attempt: number,
+        source: string
+      ): Promise<Blob> => {
+        console.log(`[TTS-Neural] ${source} attempt ${attempt}/3, endpoint=${endpoint}`);
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -185,15 +212,15 @@ export default function Home() {
         return blob;
       };
 
-      const fetchWithRetry = async (): Promise<Blob> => {
+      const trySource = async (endpoint: string, body: any, source: string): Promise<Blob> => {
         let lastError: Error | null = null;
-        for (let attempt = 1; attempt <= 4; attempt++) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            return await tryFetch(attempt);
+            return await tryFetch(endpoint, body, attempt, source);
           } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
-            console.warn(`[TTS-Neural] Attempt ${attempt} failed:`, lastError.message);
-            if (attempt < 4) {
+            console.warn(`[TTS-Neural] ${source} attempt ${attempt} failed:`, lastError.message);
+            if (attempt < 3) {
               await new Promise((r) => setTimeout(r, 300 * attempt));
             }
           }
@@ -201,7 +228,25 @@ export default function Home() {
         throw lastError;
       };
 
-      fetchWithRetry()
+      // Сначала пробуем основной источник, потом — резервный
+      const tryWithFallback = async (): Promise<Blob> => {
+        try {
+          console.log(`[TTS-Neural] Trying primary: ${primaryEndpoint}`);
+          return await trySource(primaryEndpoint, primaryBody, 'Primary');
+        } catch (primaryErr) {
+          console.warn(`[TTS-Neural] Primary failed, trying fallback: ${fallbackEndpoint}`);
+          try {
+            const blob = await trySource(fallbackEndpoint, fallbackBody, 'Fallback');
+            console.log(`[TTS-Neural] Fallback succeeded!`);
+            return blob;
+          } catch (fallbackErr) {
+            console.error(`[TTS-Neural] Both sources failed`);
+            throw fallbackErr;
+          }
+        }
+      };
+
+      tryWithFallback()
         .then((blob) => {
           console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, playing ${voiceName}`);
           const url = URL.createObjectURL(blob);
@@ -232,7 +277,7 @@ export default function Home() {
                 setIsNeuralPlaying(false);
                 toast({
                   title: 'Не удалось воспроизвести',
-                  description: 'Кликните куда-нибудь на странице и попробуйте снова.',
+                  description: 'Кликните куда-нибудь на странице и попробуйте снова. Браузер блокирует автозапуск аудио.',
                   variant: 'destructive',
                 });
               });
@@ -250,11 +295,15 @@ export default function Home() {
           }
         })
         .catch((err) => {
-          console.error('[TTS-Neural] All retries failed:', err.message);
+          console.error('[TTS-Neural] All sources failed:', err.message);
           setIsNeuralPlaying(false);
+          // Если интернет работает — это может быть блокировка autoplay или проблема сети
+          const isNetworkErr = err.message.includes('HTTP') || err.message.includes('Failed to fetch');
           toast({
-            title: 'Нейронный голос недоступен',
-            description: `TTS не ответил после 4 попыток. Попробуйте ещё раз или переключитесь на режим «ОС».`,
+            title: 'Не получилось озвучить нейро-голосом',
+            description: isNetworkErr
+              ? `Сервер TTS не ответил: ${err.message.slice(0, 80)}. Переключитесь на режим «ОС» — он работает офлайн.`
+              : `Все источники TTS не ответили. Кликните по странице и попробуйте ещё раз, либо переключитесь на режим «ОС».`,
             variant: 'destructive',
           });
         });
