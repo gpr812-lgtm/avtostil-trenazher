@@ -350,21 +350,52 @@ export async function POST(req: NextRequest) {
 
     // Генерируем части с retry
     const buffers: Buffer[] = [];
+    let pollyFailed = false; // Если Polly упала — переключаемся на Google TTS
     for (let i = 0; i < chunks.length; i++) {
       let buf: Buffer | null = null;
       let lastError: Error | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          buf = await generateChunk(chunks[i], pollyVoice);
-          break;
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.warn(`[TTS-Polly] Attempt ${attempt + 1}/3 failed for chunk ${i}:`, lastError.message);
-          await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+
+      if (!pollyFailed) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            buf = await generateChunk(chunks[i], pollyVoice);
+            break;
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.warn(`[TTS-Polly] Attempt ${attempt + 1}/2 failed for chunk ${i}:`, lastError.message);
+            // Если "Usage Limit exceeded" — не ретраим, сразу переключаемся
+            if (lastError.message.includes('Usage Limit') || lastError.message.includes('limit')) {
+              pollyFailed = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+          }
         }
       }
+
+      // Fallback на Google TTS если Polly недоступна
       if (!buf) {
-        throw lastError || new Error('Polly TTS failed after retries');
+        console.log(`[TTS-Polly] Falling back to Google TTS for chunk ${i}`);
+        try {
+          // Для Google TTS убираем SSML-теги — он их не поддерживает
+          const cleanText = chunks[i].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+          const googleRes = await fetch('http://localhost:3000/api/tts-neural', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: cleanText }),
+          });
+          if (googleRes.ok) {
+            const googleBlob = await googleRes.blob();
+            buf = Buffer.from(await googleBlob.arrayBuffer());
+            console.log(`[TTS-Polly] Google TTS fallback succeeded: ${buf.length} bytes`);
+          }
+        } catch (googleErr) {
+          console.error('[TTS-Polly] Google TTS fallback also failed:', googleErr);
+        }
+      }
+
+      if (!buf) {
+        throw lastError || new Error('All TTS sources failed');
       }
       buffers.push(buf);
     }
