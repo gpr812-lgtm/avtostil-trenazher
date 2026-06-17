@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ import { CarCatalog } from '@/components/car-catalog';
 import { Dialogue, Message } from '@/components/dialogue';
 import { InputPanel } from '@/components/input-panel';
 import { FeedbackPanel, Feedback } from '@/components/feedback-panel';
+import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
 import { toast } from '@/hooks/use-toast';
 
 interface DialogueMessage {
@@ -41,6 +42,32 @@ export default function Home() {
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
+
+  // Браузерный TTS — поддерживает русский язык
+  const { speak: speakTTS, cancel: cancelTTS, isSupported: ttsSupported } = useSpeechSynthesis();
+
+  // Предупреждение, если TTS не поддерживается браузером
+  useEffect(() => {
+    if (!ttsSupported) {
+      toast({
+        title: 'Озвучка недоступна',
+        description: 'Ваш браузер не поддерживает синтез речи. Используйте Chrome, Edge или Yandex.Browser. Текстовый режим диалога работает.',
+        variant: 'destructive',
+      });
+      setTtsEnabled(false);
+    }
+  }, [ttsSupported]);
+
+  const playTTS = useCallback(
+    (text: string) => {
+      if (!ttsSupported) return;
+      // Небольшая задержка, чтобы не накладывалось на звук записи
+      setTimeout(() => {
+        speakTTS(text);
+      }, 100);
+    },
+    [ttsSupported, speakTTS]
+  );
 
   const handleStartCall = useCallback(async () => {
     if (!selectedScenario) {
@@ -97,28 +124,7 @@ export default function Home() {
       setIsTyping(false);
       setIsCallActive(false);
     }
-  }, [selectedScenario, ttsEnabled]);
-
-  const playTTS = async (text: string) => {
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-
-      if (!res.ok) return;
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (audioRef.current) {
-        audioRef.current.src = url;
-        audioRef.current.play().catch(() => {});
-      }
-    } catch (err) {
-      console.error('TTS error:', err);
-    }
-  };
+  }, [selectedScenario, ttsEnabled, playTTS]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {
@@ -181,7 +187,7 @@ export default function Home() {
         setIsTyping(false);
       }
     },
-    [selectedScenario, isCallActive, messages, ttsEnabled]
+    [selectedScenario, isCallActive, messages, ttsEnabled, playTTS]
   );
 
   const handleEndCall = useCallback(async () => {
@@ -193,6 +199,7 @@ export default function Home() {
     if (audioRef.current) {
       audioRef.current.pause();
     }
+    cancelTTS(); // Останавливаем озвучку клиента
 
     // Запрос обратной связи
     if (messages.length > 0 && selectedScenario) {
@@ -230,7 +237,7 @@ export default function Home() {
         setIsFeedbackLoading(false);
       }
     }
-  }, [isCallActive, messages, selectedScenario]);
+  }, [isCallActive, messages, selectedScenario, cancelTTS]);
 
   const handleReset = useCallback(() => {
     setMessages([]);
@@ -241,7 +248,8 @@ export default function Home() {
     if (audioRef.current) {
       audioRef.current.pause();
     }
-  }, []);
+    cancelTTS();
+  }, [cancelTTS]);
 
   const handleSelectScenario = (scenario: Scenario) => {
     if (isCallActive) {
@@ -518,22 +526,30 @@ export default function Home() {
                   <li className="flex gap-2">
                     <span className="font-semibold text-primary">3.</span>
                     <span>
-                      Отвечайте <b>текстом</b> или <b>голосом</b> (микрофон).
-                      Можно включить озвучку клиента.
+                      Отвечайте <b>текстом</b> или <b>голосом</b> (микрофон) —
+                      голос распознаётся на русском языке в реальном времени,
+                      текст видно под кнопкой записи.
                     </span>
                   </li>
                   <li className="flex gap-2">
                     <span className="font-semibold text-primary">4.</span>
+                    <span>
+                      Озвучка реплик клиента — на русском, через голос браузера.
+                      Можно включить/выключить кнопкой в панели ввода.
+                    </span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-semibold text-primary">5.</span>
                     <span>
                       Используйте <b>каталог авто</b> слева — там модели, цены,
                       характеристики китайских брендов.
                     </span>
                   </li>
                   <li className="flex gap-2">
-                    <span className="font-semibold text-primary">5.</span>
+                    <span className="font-semibold text-primary">6.</span>
                     <span>
-                      Когда клиент положит трубку — справа появится
-                      <b> разбор по 8 критериям</b> с оценкой и рекомендациями.
+                      Когда закончите разговор — нажмите <b>«Завершить звонок»</b>,
+                      и справа появится <b>разбор по 8 критериям</b>.
                     </span>
                   </li>
                 </ol>
@@ -542,6 +558,10 @@ export default function Home() {
                     Бот играет роль реального клиента и не подсказывает.
                     Цель — провести звонок так, чтобы записать клиента на
                     тест-драйв или визит в салон.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
+                    <b>Важно:</b> для голосового режима нужен Chrome, Edge или
+                    Yandex.Browser с доступом к микрофону.
                   </p>
                 </div>
               </div>
