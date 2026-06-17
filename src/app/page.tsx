@@ -148,7 +148,9 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  // Нейронный TTS через Microsoft Edge (мужской/женский, звучит естественно)
+  // Нейронный TTS
+  // ♂ Мужской: Microsoft Edge TTS (Дмитрий) — настоящий мужской голос
+  // ♀ Женский: Google Translate TTS — стабильный женский голос
   const playNeuralTTS = useCallback(
     (text: string) => {
       // Останавливаем системный TTS если он был
@@ -156,16 +158,19 @@ export default function Home() {
       setIsNeuralPlaying(true);
 
       const voice = neuralVoiceRef.current;
-      const voiceName = voice === 'male' ? 'Дмитрий (♂)' : 'Светлана (♀)';
-      console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
+      const voiceName = voice === 'male' ? 'Дмитрий (♂, Edge)' : 'Женский (♀, Google)';
+      const endpoint = voice === 'male' ? '/api/tts-edge' : '/api/tts-neural';
+      const body = voice === 'male' ? { text, voice: 'male' } : { text };
 
-      // Retry до 4 попыток — Edge TTS иногда капризничает
+      console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), endpoint=${endpoint}, text="${text.slice(0, 50)}..."`);
+
+      // Retry до 4 попыток
       const tryFetch = async (attempt: number): Promise<Blob> => {
         console.log(`[TTS-Neural] Attempt ${attempt}/4`);
-        const res = await fetch('/api/tts-edge', {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice }),
+          body: JSON.stringify(body),
         });
 
         if (!res.ok) {
@@ -201,8 +206,6 @@ export default function Home() {
           console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, playing ${voiceName}`);
           const url = URL.createObjectURL(blob);
 
-          // Используем существующий audioRef, но если autoplay заблокирован —
-          // попробуем через новый Audio()
           const playAudio = (audio: HTMLAudioElement): Promise<void> => {
             audio.src = url;
             audio.onended = () => {
@@ -219,7 +222,6 @@ export default function Home() {
           if (audioRef.current) {
             playAudio(audioRef.current).catch((err) => {
               console.warn('[TTS-Neural] audioRef.play failed, trying new Audio():', err.message);
-              // Попытка через новый Audio — иногда работает, когда ref не работает
               const newAudio = new Audio(url);
               newAudio.onended = () => {
                 setIsNeuralPlaying(false);
@@ -230,13 +232,12 @@ export default function Home() {
                 setIsNeuralPlaying(false);
                 toast({
                   title: 'Не удалось воспроизвести',
-                  description: 'Кликните куда-нибудь на странице и попробуйте снова. Браузер блокирует автозапуск аудио.',
+                  description: 'Кликните куда-нибудь на странице и попробуйте снова.',
                   variant: 'destructive',
                 });
               });
             });
           } else {
-            // Fallback — новый Audio
             const newAudio = new Audio(url);
             newAudio.onended = () => {
               setIsNeuralPlaying(false);
@@ -251,10 +252,9 @@ export default function Home() {
         .catch((err) => {
           console.error('[TTS-Neural] All retries failed:', err.message);
           setIsNeuralPlaying(false);
-          // Явное предупреждение пользователю — НЕ переключаемся молча на системный
           toast({
             title: 'Нейронный голос недоступен',
-            description: `Edge TTS не ответил после 4 попыток. Проверьте интернет или переключитесь на режим «ОС».`,
+            description: `TTS не ответил после 4 попыток. Попробуйте ещё раз или переключитесь на режим «ОС».`,
             variant: 'destructive',
           });
         });
@@ -290,7 +290,7 @@ export default function Home() {
   // Тестовый голос — чтобы пользователь мог проверить, как звучит
   const handleTestVoice = useCallback(() => {
     playTTS(
-      `Здравствуйте! Это ${neuralVoiceRef.current === 'male' ? 'Дмитрий' : 'Светлана'}, тестовый голос. Если вы слышите меня на русском языке, озвучка настроена правильно.`
+      `Здравствуйте! Это тестовый голос. ${neuralVoiceRef.current === 'male' ? 'Мужской голос, Дмитрий.' : 'Женский голос.'} Если вы слышите меня на русском языке, озвучка настроена правильно.`
     );
   }, [playTTS]);
 
