@@ -16,7 +16,7 @@ import {
 interface ServiceStatus {
   name: string;
   label: string;
-  status: 'ok' | 'error';
+  status: 'ok' | 'error' | 'loading';
   detail?: string;
 }
 
@@ -66,6 +66,22 @@ export function StatusPanel() {
 
   // Если всё ok и свёрнуто — показываем компактный бейдж
   if (health?.allReady && !isExpanded) {
+    const hasLoading = health.services.some(s => s.status === 'loading');
+    if (hasLoading) {
+      // Есть загружающиеся сервисы — показываем жёлтый бейдж
+      return (
+        <div className="fixed bottom-4 right-4 z-50">
+          <button
+            onClick={() => setIsExpanded(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-full bg-amber-500 text-white shadow-lg hover:bg-amber-600 transition-colors text-xs font-medium"
+            title="Некоторые сервисы загружаются. Нажмите для деталей."
+          >
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Системы загружаются...
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="fixed bottom-4 right-4 z-50">
         <button
@@ -83,6 +99,8 @@ export function StatusPanel() {
 
   // Если есть ошибки или развёрнуто — показываем панель
   const hasErrors = health?.services.some(s => s.status === 'error');
+  const hasLoading = health?.services.some(s => s.status === 'loading');
+  const showWarning = hasErrors || hasLoading;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm">
@@ -94,13 +112,16 @@ export function StatusPanel() {
               {isLoading ? (
                 <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
               ) : hasErrors ? (
-                <AlertCircle className="w-5 h-5 text-amber-500" />
+                <AlertCircle className="w-5 h-5 text-rose-500" />
+              ) : hasLoading ? (
+                <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
               ) : (
                 <ShieldCheck className="w-5 h-5 text-emerald-500" />
               )}
               <span className="text-sm font-semibold">
                 {isLoading ? 'Проверка систем...' :
                  hasErrors ? 'Не все системы готовы' :
+                 hasLoading ? 'Системы загружаются...' :
                  'Все системы готовы'}
               </span>
             </div>
@@ -140,6 +161,8 @@ export function StatusPanel() {
                   <div className="flex items-center gap-2 min-w-0">
                     {service.status === 'ok' ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                    ) : service.status === 'loading' ? (
+                      <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
                     ) : (
                       <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
                     )}
@@ -160,8 +183,16 @@ export function StatusPanel() {
           {/* Сообщение для пользователя */}
           {hasErrors && (
             <div className="pt-2 border-t border-border">
+              <p className="text-[11px] text-rose-700 leading-relaxed">
+                ❌ Некоторые сервисы недоступны. Можно начинать тренировку, но часть функций может не работать.
+              </p>
+            </div>
+          )}
+
+          {!hasErrors && hasLoading && (
+            <div className="pt-2 border-t border-border">
               <p className="text-[11px] text-amber-700 leading-relaxed">
-                ⏳ Некоторые сервисы ещё подключаются. Как только всё будет готово — вы увидите зелёный значок «Все системы готовы». Можно начинать тренировку уже сейчас, но часть функций может быть недоступна.
+                ⏳ Некоторые сервисы ещё загружаются. Как только всё будет готово — вы увидите зелёный значок «Все системы готовы». Можно начинать тренировку уже сейчас.
               </p>
             </div>
           )}
