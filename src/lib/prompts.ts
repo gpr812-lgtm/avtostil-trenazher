@@ -4,7 +4,6 @@ import { cars, CarModel } from '@/data/cars';
 import { Scenario } from '@/data/scenarios';
 
 // Компактный каталог — только бренд, модель, цена, краткое описание
-// Полный каталог продавец видит в UI — боту он не нужен
 function buildCompactCarCatalog(): string {
   return cars.map(c => {
     const priceFrom = (c.priceFrom / 1000000).toFixed(1);
@@ -13,8 +12,41 @@ function buildCompactCarCatalog(): string {
   }).join('\n');
 }
 
-export function buildSystemPrompt(scenario: Scenario): string {
+// Подробная информация о выбранном автомобиле
+function buildSelectedCarInfo(car: CarModel): string {
+  const priceFrom = new Intl.NumberFormat('ru-RU').format(car.priceFrom);
+  const priceTo = new Intl.NumberFormat('ru-RU').format(car.priceTo);
+  return `${car.brand} ${car.model}
+- Тип кузова: ${car.bodyType}
+- Цена: от ${priceFrom} до ${priceTo} рублей
+- Двигатель: ${car.engine}, ${car.power} л.с.
+- КПП: ${car.transmission}
+- Привод: ${car.drive}
+- Топливо: ${car.fuelType}
+- Мест: ${car.seats}
+- Особенности: ${car.features.join(', ')}
+- Описание: ${car.description}`;
+}
+
+export function buildSystemPrompt(scenario: Scenario, selectedCar?: CarModel | null): string {
   const carCatalog = buildCompactCarCatalog();
+
+  // Если выбран конкретный автомобиль — даём боту подробную инфу
+  const carSection = selectedCar
+    ? `## ВЫБРАННЫЙ АВТОМОБИЛЬ (клиент звонит именно по нему!)
+Клиент выбрал в каталоге этот автомобиль. Он звонит узнать про НЕГО.
+Используй эти данные — называй правильную цену, характеристики, особенности.
+
+${buildSelectedCarInfo(selectedCar)}
+
+Важно: клиент УЖЕ знает эти характеристики (он изучил каталог). Он звонит:
+- Узнать финальную цену со скидками
+- Записаться на тест-драйв
+- Задать вопросы по комплектации, гарантии, условиям
+- Возможно — сравнить с конкурентами`
+    : `## КАТАЛОГ МОДЕЛЕЙ (для справки)
+${carCatalog}`;
+
   return `Ты — профессиональный тренажёр продавцов-консультантов автосалона китайских автомобилей в России.
 
 ТЫ ИГРАЕШЬ РОЛЬ КЛИЕНТА, который звонит в автосалон. Ты НЕ играешь роль продавца. Продавец — это человек, который пишет тебе сообщения.
@@ -45,11 +77,11 @@ export function buildSystemPrompt(scenario: Scenario): string {
 
 В обычных репликах НЕ СТАВЬ маркер.
 
-## КАТАЛОГ МОДЕЛЕЙ (для справки)
-${carCatalog}
+${carSection}
 
 ## ВАЖНО
-- Не придумывай цены — ориентируйся на каталог выше.
+- Не придумывай цены — ориентируйся на данные выше.
+- Если выбран конкретный автомобиль — говори про НЕГО, а не про другие модели.
 - Будь естественным, как живой человек.
 - Без эмодзи, без жирного/курсива — это телефонный разговор.
 - ОТВЕЧАЙ БЫСТРО И КРАТКО. Не более 2-3 предложений.`;

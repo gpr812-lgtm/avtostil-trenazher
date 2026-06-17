@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ZAI from 'z-ai-web-dev-sdk';
 import { buildSystemPrompt } from '@/lib/prompts';
 import { getScenarioById } from '@/data/scenarios';
+import { getCarById } from '@/data/cars';
 
 export const runtime = 'nodejs';
 
@@ -13,12 +14,13 @@ interface ChatMessage {
 interface RequestBody {
   scenarioId: string;
   messages: ChatMessage[];
+  carId?: string;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json();
-    const { scenarioId, messages } = body;
+    const { scenarioId, messages, carId } = body;
 
     if (!scenarioId) {
       return NextResponse.json(
@@ -35,16 +37,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const systemPrompt = buildSystemPrompt(scenario);
+    const selectedCar = carId ? getCarById(carId) : undefined;
+    const systemPrompt = buildSystemPrompt(scenario, selectedCar);
 
     const llmMessages: Array<{ role: string; content: string }> = [
       { role: 'assistant', content: systemPrompt },
     ];
 
     if (messages.length === 0) {
+      const carHint = selectedCar
+        ? ` Клиент звонит по поводу ${selectedCar.brand} ${selectedCar.model}.`
+        : '';
       llmMessages.push({
         role: 'user',
-        content: `[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием. Начни с: "${scenario.openingMessage}"]`,
+        content: `[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием. Начни с: "${scenario.openingMessage}"${carHint}]`,
       });
     } else {
       for (const msg of messages) {

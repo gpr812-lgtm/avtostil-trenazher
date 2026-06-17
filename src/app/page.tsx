@@ -321,7 +321,7 @@ export default function Home() {
       const res = await fetch('/api/chat-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenarioId, messages }),
+        body: JSON.stringify({ scenarioId, messages, carId: selectedCar?.id }),
       });
 
       if (!res.ok) {
@@ -841,6 +841,17 @@ export default function Home() {
                   <p className="text-xs text-muted-foreground line-clamp-1">
                     {selectedScenario.customerProfile}
                   </p>
+                  {selectedCar && (
+                    <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 border border-primary/20">
+                      <Car className="w-3 h-3 text-primary flex-shrink-0" />
+                      <span className="text-xs font-medium text-primary truncate">
+                        {selectedCar.brand} {selectedCar.model}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">
+                        {Math.round(selectedCar.priceFrom / 1000000 * 10) / 10}-{Math.round(selectedCar.priceTo / 1000000 * 10) / 10} млн ₽
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {isCallActive && (
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600">
