@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Mic, MicOff, Send, Square, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Send, Square, Volume2, VolumeX, Loader2, ChevronDown } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition';
 import { toast } from '@/hooks/use-toast';
 
@@ -13,6 +13,11 @@ interface InputPanelProps {
   isProcessing: boolean;
   ttsEnabled: boolean;
   onToggleTts: () => void;
+  russianVoices?: SpeechSynthesisVoice[];
+  selectedVoice?: SpeechSynthesisVoice | null;
+  onSelectVoice?: (voice: SpeechSynthesisVoice) => void;
+  hasRussianVoice?: boolean;
+  onTestVoice?: () => void;
 }
 
 export function InputPanel({
@@ -21,8 +26,14 @@ export function InputPanel({
   isProcessing,
   ttsEnabled,
   onToggleTts,
+  russianVoices = [],
+  selectedVoice = null,
+  onSelectVoice,
+  hasRussianVoice = true,
+  onTestVoice,
 }: InputPanelProps) {
   const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [showVoiceSelector, setShowVoiceSelector] = useState(false);
   const [text, setText] = useState('');
   const {
     isListening,
@@ -158,22 +169,120 @@ export function InputPanel({
             </button>
           </div>
 
-          <button
-            onClick={onToggleTts}
-            disabled={disabled}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-            title={ttsEnabled ? 'Выключить озвучку клиента' : 'Включить озвучку клиента'}
-          >
-            {ttsEnabled ? (
-              <Volume2 className="w-4 h-4" />
-            ) : (
-              <VolumeX className="w-4 h-4" />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onToggleTts}
+              disabled={disabled}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+              title={ttsEnabled ? 'Выключить озвучку клиента' : 'Включить озвучку клиента'}
+            >
+              {ttsEnabled ? (
+                <Volume2 className="w-4 h-4" />
+              ) : (
+                <VolumeX className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">
+                {ttsEnabled ? 'Озвучка вкл' : 'Озвучка выкл'}
+              </span>
+            </button>
+
+            {/* Выбор голоса — показываем, если озвучка включена */}
+            {ttsEnabled && (
+              <div className="flex items-center gap-1">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowVoiceSelector(!showVoiceSelector)}
+                    disabled={disabled}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors px-2 py-1 rounded-md hover:bg-muted"
+                    title="Выбрать голос"
+                  >
+                    <span className="max-w-[120px] truncate">
+                      {selectedVoice?.name || (hasRussianVoice ? 'Русский голос' : 'Нет русского!')}
+                    </span>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+
+                  {showVoiceSelector && (
+                    <>
+                      {/* Backdrop */}
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowVoiceSelector(false)}
+                      />
+                      {/* Dropdown */}
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-lg shadow-lg min-w-[240px] max-h-[260px] overflow-y-auto scrollbar-thin">
+                        {russianVoices.length === 0 ? (
+                          <div className="p-3 text-xs text-muted-foreground">
+                            <p className="font-medium text-rose-600 mb-2">
+                              Русский голос не найден
+                            </p>
+                            <p className="leading-relaxed">
+                              Установите русский голос в настройках ОС:
+                            </p>
+                            <ul className="mt-1.5 space-y-1">
+                              <li><b>Windows:</b> Параметры → Время и язык → Речь → Добавить голоса</li>
+                              <li><b>macOS:</b> Системные настройки → Универсальный доступ → Речь → Голос</li>
+                              <li><b>Linux:</b> sudo apt install espeak-ng mbrola-ru1</li>
+                            </ul>
+                          </div>
+                        ) : (
+                          <div className="py-1">
+                            <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                              Русские голоса ({russianVoices.length})
+                            </div>
+                            {russianVoices.map((voice) => (
+                              <button
+                                key={`${voice.name}-${voice.lang}`}
+                                onClick={() => {
+                                  onSelectVoice?.(voice);
+                                  setShowVoiceSelector(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 text-xs hover:bg-accent/50 transition-colors flex items-center justify-between gap-2 ${
+                                  selectedVoice?.name === voice.name
+                                    ? 'bg-accent/30 text-foreground font-medium'
+                                    : 'text-muted-foreground'
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate">{voice.name}</div>
+                                  <div className="text-[10px] opacity-70">
+                                    {voice.lang}
+                                    {!voice.localService && ' · облачный'}
+                                  </div>
+                                </div>
+                                {selectedVoice?.name === voice.name && (
+                                  <span className="text-primary text-xs">✓</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Кнопка теста голоса */}
+                <button
+                  onClick={() => onTestVoice?.()}
+                  disabled={disabled || !hasRussianVoice}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors px-2 py-1 rounded-md hover:bg-muted"
+                  title="Проверить голос"
+                >
+                  <Volume2 className="w-3 h-3" />
+                  <span className="hidden md:inline">Тест</span>
+                </button>
+              </div>
             )}
-            <span className="hidden sm:inline">
-              {ttsEnabled ? 'Озвучка вкл' : 'Озвучка выкл'}
-            </span>
-          </button>
+          </div>
         </div>
+
+        {/* Предупреждение об отсутствии русского голоса */}
+        {ttsEnabled && !hasRussianVoice && (
+          <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-2">
+            ⚠️ В системе не найден русский голос для озвучки. Установите русский голос в настройках ОС (Windows: Параметры → Речь; macOS: Универсальный доступ → Речь; Linux: espeak-ng mbrola-ru1).
+          </div>
+        )}
 
         {/* Предупреждение о неподдержке */}
         {mode === 'voice' && !asrSupported && (

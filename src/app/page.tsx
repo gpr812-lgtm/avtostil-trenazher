@@ -44,7 +44,15 @@ export default function Home() {
   const callStartRef = useRef<number>(0);
 
   // Браузерный TTS — поддерживает русский язык
-  const { speak: speakTTS, cancel: cancelTTS, isSupported: ttsSupported } = useSpeechSynthesis();
+  const {
+    speak: speakTTS,
+    cancel: cancelTTS,
+    isSupported: ttsSupported,
+    hasRussianVoice,
+    russianVoices,
+    selectedVoice,
+    setSelectedVoice,
+  } = useSpeechSynthesis();
 
   // Предупреждение, если TTS не поддерживается браузером
   useEffect(() => {
@@ -58,6 +66,17 @@ export default function Home() {
     }
   }, [ttsSupported]);
 
+  // Предупреждение, если нет русского голоса
+  useEffect(() => {
+    if (ttsSupported && !hasRussianVoice && ttsEnabled) {
+      toast({
+        title: 'Нет русского голоса в системе',
+        description: 'В вашей ОС не установлен русский голос для синтеза речи. Установите русский голос в настройках системы, иначе озвучка будет на другом языке.',
+        variant: 'destructive',
+      });
+    }
+  }, [ttsSupported, hasRussianVoice, ttsEnabled]);
+
   const playTTS = useCallback(
     (text: string) => {
       if (!ttsSupported) return;
@@ -68,6 +87,13 @@ export default function Home() {
     },
     [ttsSupported, speakTTS]
   );
+
+  // Тестовый голос — чтобы пользователь мог проверить, что звучит по-русски
+  const handleTestVoice = useCallback(() => {
+    speakTTS(
+      'Здравствуйте! Это тестовое сообщение. Если вы слышите его на русском языке, озвучка настроена правильно.'
+    );
+  }, [speakTTS]);
 
   const handleStartCall = useCallback(async () => {
     if (!selectedScenario) {
@@ -450,6 +476,11 @@ export default function Home() {
             isProcessing={isTyping}
             ttsEnabled={ttsEnabled}
             onToggleTts={() => setTtsEnabled(!ttsEnabled)}
+            russianVoices={russianVoices}
+            selectedVoice={selectedVoice}
+            onSelectVoice={setSelectedVoice}
+            hasRussianVoice={hasRussianVoice}
+            onTestVoice={handleTestVoice}
           />
         </div>
 
@@ -496,6 +527,11 @@ export default function Home() {
             isProcessing={isTyping}
             ttsEnabled={ttsEnabled}
             onToggleTts={() => setTtsEnabled(!ttsEnabled)}
+            russianVoices={russianVoices}
+            selectedVoice={selectedVoice}
+            onSelectVoice={setSelectedVoice}
+            hasRussianVoice={hasRussianVoice}
+            onTestVoice={handleTestVoice}
           />
         </div>
 
@@ -562,6 +598,12 @@ export default function Home() {
                   <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
                     <b>Важно:</b> для голосового режима нужен Chrome, Edge или
                     Yandex.Browser с доступом к микрофону.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
+                    <b>Озвучка клиента:</b> используйте кнопку «Тест» рядом с
+                    выбором голоса, чтобы убедиться, что звучит по-русски.
+                    Если русских голосов нет — установите их в настройках ОС
+                    (Windows: Параметры → Речь).
                   </p>
                 </div>
               </div>
