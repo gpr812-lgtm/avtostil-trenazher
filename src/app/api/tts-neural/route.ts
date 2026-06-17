@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { applyAccents } from '@/lib/accents';
 
 export const runtime = 'nodejs';
 
@@ -75,9 +76,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Применяем ударения к проблемным словам
+    const accentedText = applyAccents(text);
+
     // Разбиваем длинный текст на части
-    const chunks = splitTextIntoChunks(text, 180);
-    console.log(`[TTS-Neural] Split into ${chunks.length} chunks, total chars: ${text.length}`);
+    const chunks = splitTextIntoChunks(accentedText, 180);
+    console.log(`[TTS-Neural] Split into ${chunks.length} chunks, total chars: ${accentedText.length}`);
 
     // Загружаем все части параллельно
     const audioBuffers = await Promise.all(

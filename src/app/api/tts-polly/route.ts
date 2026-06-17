@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { applyAccents } from '@/lib/accents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -101,8 +102,14 @@ export async function POST(req: NextRequest) {
 
     const pollyVoice = VOICE_MAP[voice] || VOICE_MAP.male;
 
-    const chunks = splitTextIntoChunks(text, 1000);
-    console.log(`[TTS-Polly] voice=${pollyVoice}, chunks=${chunks.length}, total_chars=${text.length}`);
+    // Применяем ударения к проблемным словам (Polly иногда коверкает ударения)
+    const accentedText = applyAccents(text);
+    if (accentedText !== text) {
+      console.log(`[TTS-Polly] Applied accents. Original: "${text.slice(0, 60)}..." → Accented: "${accentedText.slice(0, 60)}..."`);
+    }
+
+    const chunks = splitTextIntoChunks(accentedText, 1000);
+    console.log(`[TTS-Polly] voice=${pollyVoice}, chunks=${chunks.length}, total_chars=${accentedText.length}`);
 
     // Генерируем части с retry
     const buffers: Buffer[] = [];

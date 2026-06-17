@@ -4,6 +4,7 @@ import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import { applyAccents } from '@/lib/accents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -114,13 +115,16 @@ export async function POST(req: NextRequest) {
 
     const edgeVoice = VOICE_MAP[voice] || VOICE_MAP.male;
 
+    // Применяем ударения к проблемным словам
+    const accentedText = applyAccents(text);
+
     // Создаём временную директорию
     tmpDir = path.join(os.tmpdir(), `tts-edge-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     await mkdir(tmpDir, { recursive: true });
 
     // Разбиваем длинный текст
-    const chunks = splitTextIntoChunks(text, 1500);
-    console.log(`[TTS-Edge] voice=${edgeVoice}, chunks=${chunks.length}, total_chars=${text.length}`);
+    const chunks = splitTextIntoChunks(accentedText, 1500);
+    console.log(`[TTS-Edge] voice=${edgeVoice}, chunks=${chunks.length}, total_chars=${accentedText.length}`);
 
     // Генерируем части последовательно с retry
     const buffers: Buffer[] = [];
