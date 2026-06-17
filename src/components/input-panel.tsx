@@ -31,6 +31,8 @@ interface InputPanelProps {
   liveMode?: LiveModeProps;
   ttsMode?: 'neural' | 'system';
   onTtsModeChange?: (mode: 'neural' | 'system') => void;
+  neuralVoice?: 'male' | 'female';
+  onNeuralVoiceChange?: (voice: 'male' | 'female') => void;
 }
 
 export function InputPanel({
@@ -47,6 +49,8 @@ export function InputPanel({
   liveMode,
   ttsMode = 'neural',
   onTtsModeChange,
+  neuralVoice = 'male',
+  onNeuralVoiceChange,
 }: InputPanelProps) {
   const [mode, setMode] = useState<'text' | 'voice' | 'live'>('text');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
@@ -243,6 +247,36 @@ export function InputPanel({
                 >
                   <Cpu className="w-3 h-3" />
                   <span className="hidden sm:inline">ОС</span>
+                </button>
+              </div>
+            )}
+
+            {/* Выбор мужской/женский — только для нейронного режима */}
+            {ttsEnabled && ttsMode === 'neural' && onNeuralVoiceChange && (
+              <div className="flex items-center gap-0.5 bg-muted/70 rounded-md p-0.5">
+                <button
+                  onClick={() => onNeuralVoiceChange('male')}
+                  className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                    neuralVoice === 'male'
+                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Мужской голос (Дмитрий)"
+                >
+                  <span className="hidden sm:inline">♂ Муж</span>
+                  <span className="sm:hidden">М</span>
+                </button>
+                <button
+                  onClick={() => onNeuralVoiceChange('female')}
+                  className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                    neuralVoice === 'female'
+                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Женский голос (Светлана)"
+                >
+                  <span className="hidden sm:inline">♀ Жен</span>
+                  <span className="sm:hidden">Ж</span>
                 </button>
               </div>
             )}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ZAI from 'z-ai-web-dev-sdk';
-import { buildSystemPrompt, buildCarCatalogText } from '@/lib/prompts';
+import { buildSystemPrompt } from '@/lib/prompts';
 import { getScenarioById } from '@/data/scenarios';
 
 export const runtime = 'nodejs';
@@ -35,33 +35,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const carCatalog = buildCarCatalogText();
-    const systemPrompt = buildSystemPrompt(scenario, carCatalog);
-
-    // Подготовка сообщений для LLM
-    // System prompt + инструкция о первой реплике — одним сообщением
-    const fullSystemPrompt = `${systemPrompt}
-
-## ПЕРВОЕ СООБЩЕНИЕ
-
-Сейчас начни диалог СВОЕЙ первой репликой клиента:
-"${scenario.openingMessage}"
-
-После этого жди ответа продавца и продолжай диалог в роли клиента.`;
+    const systemPrompt = buildSystemPrompt(scenario);
 
     const llmMessages: Array<{ role: string; content: string }> = [
-      { role: 'assistant', content: fullSystemPrompt },
+      { role: 'assistant', content: systemPrompt },
     ];
 
     if (messages.length === 0) {
-      // Первый вызов — нужен user-запрос, чтобы модель начала генерацию
       llmMessages.push({
         role: 'user',
-        content:
-          '[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием.]',
+        content: `[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием. Начни с: "${scenario.openingMessage}"]`,
       });
     } else {
-      // Добавляем историю диалога
       for (const msg of messages) {
         llmMessages.push({
           role: msg.role === 'user' ? 'user' : 'assistant',
@@ -86,7 +71,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Проверяем, не завершён ли диалог
     const isDialogueEnd = response.includes('[[DIALOGUE_END]]');
     const cleanResponse = response.replace('[[DIALOGUE_END]]', '').trim();
 

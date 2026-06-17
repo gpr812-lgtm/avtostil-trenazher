@@ -41,6 +41,7 @@ export default function Home() {
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsMode, setTtsMode] = useState<'neural' | 'system'>('neural');
+  const [neuralVoice, setNeuralVoice] = useState<'male' | 'female'>('male');
   const [isNeuralPlaying, setIsNeuralPlaying] = useState(false);
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -52,6 +53,7 @@ export default function Home() {
   const selectedScenarioRef = useRef<Scenario | null>(null);
   const ttsEnabledRef = useRef(true);
   const ttsModeRef = useRef<'neural' | 'system'>('neural');
+  const neuralVoiceRef = useRef<'male' | 'female'>('male');
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -72,6 +74,10 @@ export default function Home() {
   useEffect(() => {
     ttsModeRef.current = ttsMode;
   }, [ttsMode]);
+
+  useEffect(() => {
+    neuralVoiceRef.current = neuralVoice;
+  }, [neuralVoice]);
 
   // Браузерный TTS — поддерживает русский язык
   const {
@@ -111,7 +117,7 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  // Нейронный TTS через Google Translate (звучит как живой человек)
+  // Нейронный TTS через Microsoft Edge (мужской/женский, звучит естественно)
   const playNeuralTTS = useCallback(
     (text: string) => {
       if (!audioRef.current) return;
@@ -121,10 +127,13 @@ export default function Home() {
 
       setIsNeuralPlaying(true);
 
-      fetch('/api/tts-neural', {
+      const voice = neuralVoiceRef.current;
+      console.log(`[TTS-Neural] Generating with voice=${voice}, text="${text.slice(0, 50)}..."`);
+
+      fetch('/api/tts-edge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice }),
       })
         .then((res) => {
           if (!res.ok) {
@@ -190,9 +199,53 @@ export default function Home() {
   // Тестовый голос — чтобы пользователь мог проверить, как звучит
   const handleTestVoice = useCallback(() => {
     playTTS(
-      'Здравствуйте! Это тестовое сообщение. Если вы слышите его на русском языке, озвучка настроена правильно.'
+      `Здравствуйте! Это ${neuralVoiceRef.current === 'male' ? 'Дмитрий' : 'Светлана'}, тестовый голос. Если вы слышите меня на русском языке, озвучка настроена правильно.`
     );
   }, [playTTS]);
+
+  // Streaming-запрос к LLM — текст появляется по мере генерации
+  const streamChat = useCallback(
+    async (
+      scenarioId: string,
+      messages: DialogueMessage[],
+      onDelta: (delta: string) => void
+    ): Promise<{ fullText: string; dialogueEnd: boolean }> => {
+      const startTime = Date.now();
+      const res = await fetch('/api/chat-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenarioId, messages }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Ошибка чата');
+      }
+
+      const data = await res.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const fullText: string = data.response || '';
+      const dialogueEnd: boolean = data.dialogueEnd || false;
+      const chunks: string[] = data.chunks || [fullText];
+
+      // Имитация streaming — выводим по слову с задержкой
+      // Это даёт эффект "печатающего" клиента
+      for (const chunk of chunks) {
+        onDelta(chunk);
+        // Небольшая задержка между словами — печатающий эффект
+        await new Promise((r) => setTimeout(r, 30));
+      }
+
+      console.log(`[Stream] Total time: ${Date.now() - startTime}ms, chunks: ${chunks.length}`);
+
+      return { fullText, dialogueEnd };
+    },
+    []
+  );
 
   const handleStartCall = useCallback(async () => {
     if (!selectedScenario) {
@@ -211,35 +264,46 @@ export default function Home() {
     isCallActiveRef.current = true;
     callStartRef.current = Date.now();
 
-    // Отправляем стартовую реплику клиента
     setIsTyping(true);
+
+    // Создаём пустое сообщение клиента — будем заполнять его по мере стриминга
+    const clientMessageId = crypto.randomUUID();
+    const clientMessage: Message = {
+      id: clientMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    };
+    setMessages([clientMessage]);
+    messagesRef.current = [clientMessage];
+
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenarioId: selectedScenario.id,
-          messages: [],
-        }),
-      });
+      const { fullText, dialogueEnd } = await streamChat(
+        selectedScenario.id,
+        [],
+        (delta) => {
+          // Обновляем содержимое сообщения в реальном времени
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === clientMessageId
+                ? { ...m, content: m.content + delta }
+                : m
+            )
+          );
+        }
+      );
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Ошибка при инициации звонка');
-      }
-
-      const data = await res.json();
-      const clientMessage: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: data.response,
-        timestamp: Date.now(),
-      };
-      setMessages([clientMessage]);
+      // Финальное обновление
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === clientMessageId ? { ...m, content: fullText } : m
+        )
+      );
+      messagesRef.current = [{ ...clientMessage, content: fullText }];
       setIsTyping(false);
 
-      if (ttsEnabled) {
-        playTTS(data.response);
+      if (ttsEnabled && fullText) {
+        playTTS(fullText);
       }
     } catch (err) {
       console.error('Start call error:', err);
@@ -250,8 +314,9 @@ export default function Home() {
       });
       setIsTyping(false);
       setIsCallActive(false);
+      isCallActiveRef.current = false;
     }
-  }, [selectedScenario, ttsEnabled, playTTS]);
+  }, [selectedScenario, ttsEnabled, playTTS, streamChat]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {
@@ -277,34 +342,44 @@ export default function Home() {
           content: m.content,
         }));
 
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scenarioId: scenario.id,
-            messages: dialogueHistory,
-          }),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Ошибка при отправке сообщения');
-        }
-
-        const data = await res.json();
+        // Создаём пустое сообщение клиента для постепенного заполнения
+        const clientMessageId = crypto.randomUUID();
         const clientMessage: Message = {
-          id: crypto.randomUUID(),
+          id: clientMessageId,
           role: 'assistant',
-          content: data.response,
+          content: '',
           timestamp: Date.now(),
         };
-        messagesRef.current = [...newMessages, clientMessage];
+        // Добавим пустое сообщение — оно будет заполняться по мере стриминга
         setMessages((prev) => [...prev, clientMessage]);
+
+        const { fullText } = await streamChat(
+          scenario.id,
+          dialogueHistory,
+          (delta) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === clientMessageId
+                  ? { ...m, content: m.content + delta }
+                  : m
+              )
+            );
+          }
+        );
+
+        // Финальное обновление
+        const finalClientMessage = { ...clientMessage, content: fullText };
+        messagesRef.current = [...newMessages, finalClientMessage];
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === clientMessageId ? finalClientMessage : m
+          )
+        );
         setIsTyping(false);
 
         // Озвучка реплики клиента
-        if (ttsEnabledRef.current) {
-          playTTS(data.response);
+        if (ttsEnabledRef.current && fullText) {
+          playTTS(fullText);
         }
       } catch (err) {
         console.error('Send message error:', err);
@@ -317,7 +392,7 @@ export default function Home() {
         setIsTyping(false);
       }
     },
-    [playTTS]
+    [playTTS, streamChat]
   );
 
   // Живой разговор: авто-отправка по паузе, half-duplex с TTS
@@ -359,36 +434,45 @@ export default function Home() {
       isCallActiveRef.current = true;
       callStartRef.current = Date.now();
 
-      // Получаем первую реплику клиента
       setIsTyping(true);
+
+      // Создаём пустое сообщение клиента для стриминга
+      const clientMessageId = crypto.randomUUID();
+      const clientMessage: Message = {
+        id: clientMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      };
+      setMessages([clientMessage]);
+      messagesRef.current = [clientMessage];
+
       try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scenarioId: selectedScenario.id,
-            messages: [],
-          }),
-        });
+        const { fullText } = await streamChat(
+          selectedScenario.id,
+          [],
+          (delta) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === clientMessageId
+                  ? { ...m, content: m.content + delta }
+                  : m
+              )
+            );
+          }
+        );
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Ошибка при инициации звонка');
-        }
-
-        const data = await res.json();
-        const clientMessage: Message = {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: data.response,
-          timestamp: Date.now(),
-        };
-        messagesRef.current = [clientMessage];
-        setMessages([clientMessage]);
+        const finalClientMessage = { ...clientMessage, content: fullText };
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === clientMessageId ? finalClientMessage : m
+          )
+        );
+        messagesRef.current = [finalClientMessage];
         setIsTyping(false);
 
-        if (ttsEnabled) {
-          playTTS(data.response);
+        if (ttsEnabled && fullText) {
+          playTTS(fullText);
         }
       } catch (err) {
         console.error('Live start error:', err);
@@ -404,9 +488,11 @@ export default function Home() {
       }
     }
 
-    // Запускаем микрофон
-    liveConversation.start();
-  }, [selectedScenario, isCallActive, ttsEnabled, playTTS, liveConversation]);
+    // Запускаем микрофон (после небольшой задержки, чтобы TTS стартовало)
+    setTimeout(() => {
+      liveConversation.start();
+    }, 500);
+  }, [selectedScenario, isCallActive, ttsEnabled, playTTS, liveConversation, streamChat]);
 
   const handleLiveStop = useCallback(() => {
     liveConversation.stop();
@@ -679,6 +765,8 @@ export default function Home() {
             onTestVoice={handleTestVoice}
             ttsMode={ttsMode}
             onTtsModeChange={setTtsMode}
+            neuralVoice={neuralVoice}
+            onNeuralVoiceChange={setNeuralVoice}
             liveMode={{
               isActive: liveConversation.isActive,
               isListening: liveConversation.isListening,
@@ -741,6 +829,8 @@ export default function Home() {
             onTestVoice={handleTestVoice}
             ttsMode={ttsMode}
             onTtsModeChange={setTtsMode}
+            neuralVoice={neuralVoice}
+            onNeuralVoiceChange={setNeuralVoice}
             liveMode={{
               isActive: liveConversation.isActive,
               isListening: liveConversation.isListening,
@@ -795,13 +885,13 @@ export default function Home() {
                     <span>
                       Озвучка реплик клиента — на русском. Два режима:
                       <br />
-                      <b>Нейро</b> (по умолчанию) — голос как у живого человека
-                      (через Google TTS, нужен интернет).
+                      <b>Нейро</b> (по умолчанию) — Microsoft Edge TTS, голоса
+                      как у живого человека. Можно выбрать мужской (Дмитрий) или
+                      женский (Светлана).
                       <br />
-                      <b>ОС</b> — голоса из операционной системы (работает офлайн,
-                      но звучит более «робо-»).
+                      <b>ОС</b> — голоса из операционной системы (работает офлайн).
                       <br />
-                      Переключайте кнопками «Нейро/ОС» в панели ввода.
+                      Переключайте «Нейро/ОС» и «♂/♀» в панели ввода.
                       Нажмите «Тест», чтобы услышать, как звучит.
                     </span>
                   </li>
