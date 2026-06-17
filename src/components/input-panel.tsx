@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Mic, MicOff, Send, Square, Volume2, VolumeX, Loader2, ChevronDown, Phone, PhoneOff } from 'lucide-react';
+import { Mic, MicOff, Send, Square, Volume2, VolumeX, Loader2, ChevronDown, Phone, PhoneOff, Sparkles, Cpu } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition';
 import { toast } from '@/hooks/use-toast';
 
@@ -29,6 +29,8 @@ interface InputPanelProps {
   hasRussianVoice?: boolean;
   onTestVoice?: () => void;
   liveMode?: LiveModeProps;
+  ttsMode?: 'neural' | 'system';
+  onTtsModeChange?: (mode: 'neural' | 'system') => void;
 }
 
 export function InputPanel({
@@ -43,6 +45,8 @@ export function InputPanel({
   hasRussianVoice = true,
   onTestVoice,
   liveMode,
+  ttsMode = 'neural',
+  onTtsModeChange,
 }: InputPanelProps) {
   const [mode, setMode] = useState<'text' | 'voice' | 'live'>('text');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
@@ -213,8 +217,38 @@ export function InputPanel({
               </span>
             </button>
 
-            {/* Выбор голоса — показываем, если озвучка включена */}
-            {ttsEnabled && (
+            {/* Переключатель режима TTS: нейронный / системный */}
+            {ttsEnabled && onTtsModeChange && (
+              <div className="flex items-center gap-0.5 bg-muted/70 rounded-md p-0.5">
+                <button
+                  onClick={() => onTtsModeChange('neural')}
+                  className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors ${
+                    ttsMode === 'neural'
+                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Нейронный голос (Google) — звучит как живой человек, нужен интернет"
+                >
+                  <Sparkles className="w-3 h-3 text-primary" />
+                  <span className="hidden sm:inline">Нейро</span>
+                </button>
+                <button
+                  onClick={() => onTtsModeChange('system')}
+                  className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors ${
+                    ttsMode === 'system'
+                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Системный голос — голоса из ОС, работает офлайн"
+                >
+                  <Cpu className="w-3 h-3" />
+                  <span className="hidden sm:inline">ОС</span>
+                </button>
+              </div>
+            )}
+
+            {/* Выбор голоса — только для системного режима */}
+            {ttsEnabled && ttsMode === 'system' && (
               <div className="flex items-center gap-1">
                 <div className="relative">
                   <button
@@ -288,24 +322,26 @@ export function InputPanel({
                     </>
                   )}
                 </div>
-
-                {/* Кнопка теста голоса */}
-                <button
-                  onClick={() => onTestVoice?.()}
-                  disabled={disabled || !hasRussianVoice}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors px-2 py-1 rounded-md hover:bg-muted"
-                  title="Проверить голос"
-                >
-                  <Volume2 className="w-3 h-3" />
-                  <span className="hidden md:inline">Тест</span>
-                </button>
               </div>
+            )}
+
+            {/* Кнопка теста голоса — работает в любом режиме, доступна всегда */}
+            {ttsEnabled && (
+              <button
+                onClick={() => onTestVoice?.()}
+                disabled={isProcessing || (ttsMode === 'system' && !hasRussianVoice)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors px-2 py-1 rounded-md hover:bg-muted"
+                title="Проверить голос"
+              >
+                <Volume2 className="w-3 h-3" />
+                <span className="hidden md:inline">Тест</span>
+              </button>
             )}
           </div>
         </div>
 
-        {/* Предупреждение об отсутствии русского голоса */}
-        {ttsEnabled && !hasRussianVoice && (
+        {/* Предупреждение об отсутствии русского голоса — только для системного режима */}
+        {ttsEnabled && ttsMode === 'system' && !hasRussianVoice && (
           <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-2">
             ⚠️ В системе не найден русский голос для озвучки. Установите русский голос в настройках ОС (Windows: Параметры → Речь; macOS: Универсальный доступ → Речь; Linux: espeak-ng mbrola-ru1).
           </div>

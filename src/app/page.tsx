@@ -40,6 +40,8 @@ export default function Home() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsMode, setTtsMode] = useState<'neural' | 'system'>('neural');
+  const [isNeuralPlaying, setIsNeuralPlaying] = useState(false);
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
@@ -49,6 +51,7 @@ export default function Home() {
   const isCallActiveRef = useRef(false);
   const selectedScenarioRef = useRef<Scenario | null>(null);
   const ttsEnabledRef = useRef(true);
+  const ttsModeRef = useRef<'neural' | 'system'>('neural');
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -66,17 +69,24 @@ export default function Home() {
     ttsEnabledRef.current = ttsEnabled;
   }, [ttsEnabled]);
 
+  useEffect(() => {
+    ttsModeRef.current = ttsMode;
+  }, [ttsMode]);
+
   // Браузерный TTS — поддерживает русский язык
   const {
     speak: speakTTS,
     cancel: cancelTTS,
     isSupported: ttsSupported,
-    isSpeaking: isBotSpeaking,
+    isSpeaking: isSystemSpeaking,
     hasRussianVoice,
     russianVoices,
     selectedVoice,
     setSelectedVoice,
   } = useSpeechSynthesis();
+
+  // Бот "говорит" если либо системный TTS активен, либо нейронный MP3 играет
+  const isBotSpeaking = isSystemSpeaking || isNeuralPlaying;
 
   // Предупреждение, если TTS не поддерживается браузером
   useEffect(() => {
@@ -101,23 +111,88 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  const playTTS = useCallback(
+  // Нейронный TTS через Google Translate (звучит как живой человек)
+  const playNeuralTTS = useCallback(
     (text: string) => {
-      if (!ttsSupported) return;
-      // Небольшая задержка, чтобы не накладывалось на звук записи
-      setTimeout(() => {
-        speakTTS(text);
-      }, 100);
+      if (!audioRef.current) return;
+
+      // Останавливаем предыдущее воспроизведение
+      audioRef.current.pause();
+
+      setIsNeuralPlaying(true);
+
+      fetch('/api/tts-neural', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          return res.blob();
+        })
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          if (audioRef.current) {
+            audioRef.current.src = url;
+            audioRef.current.onended = () => {
+              setIsNeuralPlaying(false);
+              URL.revokeObjectURL(url);
+            };
+            audioRef.current.onerror = () => {
+              setIsNeuralPlaying(false);
+              console.error('[TTS-Neural] Audio playback error');
+            };
+            audioRef.current.play().catch((err) => {
+              console.error('[TTS-Neural] Play error:', err);
+              setIsNeuralPlaying(false);
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('[TTS-Neural] Fetch error:', err);
+          setIsNeuralPlaying(false);
+          // Fallback на системный голос
+          if (ttsSupported) {
+            speakTTS(text);
+          }
+        });
     },
     [ttsSupported, speakTTS]
   );
 
-  // Тестовый голос — чтобы пользователь мог проверить, что звучит по-русски
+  // Универсальная функция озвучки: выбирает нейронный или системный
+  const playTTS = useCallback(
+    (text: string) => {
+      if (ttsModeRef.current === 'neural') {
+        playNeuralTTS(text);
+      } else if (ttsSupported) {
+        // Системный голос
+        setTimeout(() => {
+          speakTTS(text);
+        }, 100);
+      }
+    },
+    [ttsSupported, speakTTS, playNeuralTTS]
+  );
+
+  // Остановить любую озвучку
+  const stopTTS = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    cancelTTS();
+    setIsNeuralPlaying(false);
+  }, [cancelTTS]);
+
+  // Тестовый голос — чтобы пользователь мог проверить, как звучит
   const handleTestVoice = useCallback(() => {
-    speakTTS(
+    playTTS(
       'Здравствуйте! Это тестовое сообщение. Если вы слышите его на русском языке, озвучка настроена правильно.'
     );
-  }, [speakTTS]);
+  }, [playTTS]);
 
   const handleStartCall = useCallback(async () => {
     if (!selectedScenario) {
@@ -335,8 +410,8 @@ export default function Home() {
 
   const handleLiveStop = useCallback(() => {
     liveConversation.stop();
-    cancelTTS();
-  }, [liveConversation, cancelTTS]);
+    stopTTS();
+  }, [liveConversation, stopTTS]);
 
   const handleEndCall = useCallback(async () => {
     if (!isCallActive) return;
@@ -346,10 +421,7 @@ export default function Home() {
     setIsTyping(false);
     setIsProcessingVoice(false);
 
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    cancelTTS(); // Останавливаем озвучку клиента
+    stopTTS(); // Останавливаем любую озвучку клиента
 
     // Запрос обратной связи
     if (messages.length > 0 && selectedScenario) {
@@ -387,7 +459,7 @@ export default function Home() {
         setIsFeedbackLoading(false);
       }
     }
-  }, [isCallActive, messages, selectedScenario, cancelTTS]);
+  }, [isCallActive, messages, selectedScenario, stopTTS]);
 
   const handleReset = useCallback(() => {
     liveConversation.stop();
@@ -398,11 +470,8 @@ export default function Home() {
     isCallActiveRef.current = false;
     setIsTyping(false);
     setIsProcessingVoice(false);
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    cancelTTS();
-  }, [cancelTTS, liveConversation]);
+    stopTTS();
+  }, [stopTTS, liveConversation]);
 
   const handleSelectScenario = (scenario: Scenario) => {
     if (isCallActive) {
@@ -608,6 +677,8 @@ export default function Home() {
             onSelectVoice={setSelectedVoice}
             hasRussianVoice={hasRussianVoice}
             onTestVoice={handleTestVoice}
+            ttsMode={ttsMode}
+            onTtsModeChange={setTtsMode}
             liveMode={{
               isActive: liveConversation.isActive,
               isListening: liveConversation.isListening,
@@ -668,6 +739,8 @@ export default function Home() {
             onSelectVoice={setSelectedVoice}
             hasRussianVoice={hasRussianVoice}
             onTestVoice={handleTestVoice}
+            ttsMode={ttsMode}
+            onTtsModeChange={setTtsMode}
             liveMode={{
               isActive: liveConversation.isActive,
               isListening: liveConversation.isListening,
@@ -720,8 +793,16 @@ export default function Home() {
                   <li className="flex gap-2">
                     <span className="font-semibold text-primary">4.</span>
                     <span>
-                      Озвучка реплик клиента — на русском, через голос браузера.
-                      Можно включить/выключить кнопкой в панели ввода.
+                      Озвучка реплик клиента — на русском. Два режима:
+                      <br />
+                      <b>Нейро</b> (по умолчанию) — голос как у живого человека
+                      (через Google TTS, нужен интернет).
+                      <br />
+                      <b>ОС</b> — голоса из операционной системы (работает офлайн,
+                      но звучит более «робо-»).
+                      <br />
+                      Переключайте кнопками «Нейро/ОС» в панели ввода.
+                      Нажмите «Тест», чтобы услышать, как звучит.
                     </span>
                   </li>
                   <li className="flex gap-2">
