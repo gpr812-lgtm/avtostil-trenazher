@@ -3,9 +3,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Mic, MicOff, Send, Square, Volume2, VolumeX, Loader2, ChevronDown } from 'lucide-react';
+import { Mic, MicOff, Send, Square, Volume2, VolumeX, Loader2, ChevronDown, Phone, PhoneOff } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition';
 import { toast } from '@/hooks/use-toast';
+
+interface LiveModeProps {
+  isActive: boolean;
+  isListening: boolean;
+  isBotSpeaking: boolean;
+  isProcessing: boolean;
+  currentTranscript: string;
+  onStart: () => void;
+  onStop: () => void;
+}
 
 interface InputPanelProps {
   onSendMessage: (text: string) => void;
@@ -18,6 +28,7 @@ interface InputPanelProps {
   onSelectVoice?: (voice: SpeechSynthesisVoice) => void;
   hasRussianVoice?: boolean;
   onTestVoice?: () => void;
+  liveMode?: LiveModeProps;
 }
 
 export function InputPanel({
@@ -31,8 +42,9 @@ export function InputPanel({
   onSelectVoice,
   hasRussianVoice = true,
   onTestVoice,
+  liveMode,
 }: InputPanelProps) {
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [mode, setMode] = useState<'text' | 'voice' | 'live'>('text');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
   const [text, setText] = useState('');
   const {
@@ -163,6 +175,21 @@ export function InputPanel({
               }`}
             >
               Голос
+              {!asrSupported && (
+                <span className="text-[10px] text-rose-500">(?)</span>
+              )}
+            </button>
+            <button
+              onClick={() => setMode('live')}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                mode === 'live'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Живой разговор: говорите и слушайте без нажатия кнопок"
+            >
+              <Phone className="w-3 h-3" />
+              Живой
               {!asrSupported && (
                 <span className="text-[10px] text-rose-500">(?)</span>
               )}
@@ -320,6 +347,145 @@ export function InputPanel({
                 <Send className="w-4 h-4" />
               )}
             </Button>
+          </div>
+        )}
+
+        {/* Живой режим (live conversation) */}
+        {mode === 'live' && liveMode && (
+          <div className="space-y-3 py-2">
+            {/* Статус-индикатор */}
+            <div className="flex items-center justify-center gap-2 text-sm font-medium">
+              <span className={`w-2 h-2 rounded-full ${
+                liveMode.isActive
+                  ? liveMode.isBotSpeaking
+                    ? 'bg-blue-500'
+                    : liveMode.isListening
+                      ? 'bg-emerald-500 animate-pulse'
+                      : 'bg-amber-500'
+                  : 'bg-muted-foreground/30'
+              }`} />
+              <span className={
+                !liveMode.isActive
+                  ? 'text-muted-foreground'
+                  : liveMode.isBotSpeaking
+                    ? 'text-blue-600'
+                    : liveMode.isProcessing
+                      ? 'text-amber-600'
+                      : liveMode.isListening
+                        ? 'text-emerald-600'
+                        : 'text-muted-foreground'
+              }>
+                {!liveMode.isActive
+                  ? 'Готов начать разговор'
+                  : liveMode.isBotSpeaking
+                    ? 'Клиент говорит... слушайте'
+                    : liveMode.isProcessing
+                      ? 'Клиент обдумывает ответ...'
+                      : liveMode.isListening
+                        ? 'Слушаю вас... говорите'
+                        : 'Подождите...'}
+              </span>
+            </div>
+
+            {/* Главная кнопка */}
+            <div className="flex justify-center">
+              {!liveMode.isActive ? (
+                <Button
+                  onClick={liveMode.onStart}
+                  disabled={isProcessing || !asrSupported}
+                  size="lg"
+                  className="h-16 w-16 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                  title="Начать живой разговор"
+                >
+                  <Phone className="w-6 h-6" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={liveMode.onStop}
+                  size="lg"
+                  variant="destructive"
+                  className="h-16 w-16 rounded-full"
+                  title="Завершить разговор"
+                >
+                  <PhoneOff className="w-6 h-6" />
+                </Button>
+              )}
+            </div>
+
+            {/* Визуализация активности */}
+            {liveMode.isActive && (
+              <div className="flex justify-center items-center gap-1 h-8">
+                {liveMode.isListening && !liveMode.isBotSpeaking && (
+                  <>
+                    {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                      <span
+                        key={i}
+                        className="audio-wave-bar w-1 bg-emerald-500 rounded-full"
+                        style={{
+                          animationDelay: `${i * 0.08}s`,
+                          height: '8px',
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+                {liveMode.isBotSpeaking && (
+                  <>
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <span
+                        key={i}
+                        className="audio-wave-bar w-1.5 bg-blue-500 rounded-full"
+                        style={{
+                          animationDelay: `${i * 0.12}s`,
+                          height: '12px',
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+                {liveMode.isProcessing && !liveMode.isBotSpeaking && (
+                  <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
+                )}
+              </div>
+            )}
+
+            {/* Транскрипция речи пользователя */}
+            {liveMode.isActive && (liveMode.isListening || liveMode.currentTranscript) && (
+              <div className="bg-muted/50 border border-border rounded-lg p-3 min-h-[60px]">
+                <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1.5">
+                  {liveMode.isListening ? (
+                    <>
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                      Ваша речь (распознаётся в реальном времени)
+                    </>
+                  ) : (
+                    'Распознанная речь:'
+                  )}
+                </div>
+                <div className="text-sm leading-relaxed text-foreground">
+                  {liveMode.currentTranscript || (
+                    <span className="text-muted-foreground italic">
+                      {liveMode.isListening ? 'Ожидание речи...' : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Подсказка */}
+            {!liveMode.isActive ? (
+              <p className="text-[11px] text-muted-foreground text-center leading-relaxed px-2">
+                Нажмите зелёную кнопку — клиент позвонит вам.
+                Говорите обычным голосом, бот будет слушать и отвечать голосом.
+                Когда вы замолчите на 1.5 секунды — ответ отправится автоматически.
+                Никаких кнопок «Отправить» нажимать не нужно.
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+                Замолчите на 1.5 сек — и ваш ответ отправится автоматически.
+                Пока клиент говорит — микрофон на паузе (защита от эха).
+              </p>
+            )}
           </div>
         )}
 

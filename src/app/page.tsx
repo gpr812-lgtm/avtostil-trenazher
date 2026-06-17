@@ -22,6 +22,7 @@ import { Dialogue, Message } from '@/components/dialogue';
 import { InputPanel } from '@/components/input-panel';
 import { FeedbackPanel, Feedback } from '@/components/feedback-panel';
 import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
+import { useLiveConversation } from '@/hooks/use-live-conversation';
 import { toast } from '@/hooks/use-toast';
 
 interface DialogueMessage {
@@ -43,11 +44,34 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
 
+  // Refs для стабильных callbacks в live-режиме
+  const messagesRef = useRef<Message[]>([]);
+  const isCallActiveRef = useRef(false);
+  const selectedScenarioRef = useRef<Scenario | null>(null);
+  const ttsEnabledRef = useRef(true);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    isCallActiveRef.current = isCallActive;
+  }, [isCallActive]);
+
+  useEffect(() => {
+    selectedScenarioRef.current = selectedScenario;
+  }, [selectedScenario]);
+
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+
   // Браузерный TTS — поддерживает русский язык
   const {
     speak: speakTTS,
     cancel: cancelTTS,
     isSupported: ttsSupported,
+    isSpeaking: isBotSpeaking,
     hasRussianVoice,
     russianVoices,
     selectedVoice,
@@ -106,8 +130,10 @@ export default function Home() {
     }
 
     setMessages([]);
+    messagesRef.current = [];
     setFeedback(null);
     setIsCallActive(true);
+    isCallActiveRef.current = true;
     callStartRef.current = Date.now();
 
     // Отправляем стартовую реплику клиента
@@ -154,7 +180,9 @@ export default function Home() {
 
   const handleSendMessage = useCallback(
     async (text: string) => {
-      if (!selectedScenario || !isCallActive) return;
+      const scenario = selectedScenarioRef.current;
+      const callActive = isCallActiveRef.current;
+      if (!scenario || !callActive) return;
 
       const userMessage: Message = {
         id: crypto.randomUUID(),
@@ -163,7 +191,8 @@ export default function Home() {
         timestamp: Date.now(),
       };
 
-      const newMessages = [...messages, userMessage];
+      const newMessages = [...messagesRef.current, userMessage];
+      messagesRef.current = newMessages;
       setMessages(newMessages);
       setIsTyping(true);
 
@@ -177,7 +206,7 @@ export default function Home() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            scenarioId: selectedScenario.id,
+            scenarioId: scenario.id,
             messages: dialogueHistory,
           }),
         });
@@ -194,12 +223,12 @@ export default function Home() {
           content: data.response,
           timestamp: Date.now(),
         };
+        messagesRef.current = [...newMessages, clientMessage];
         setMessages((prev) => [...prev, clientMessage]);
         setIsTyping(false);
 
-        // Не завершаем автоматически — пусть продавец сам завершит звонок
-        // Если есть маркер — показываем подсказку, что клиент готов положить трубку
-        if (ttsEnabled) {
+        // Озвучка реплики клиента
+        if (ttsEnabledRef.current) {
           playTTS(data.response);
         }
       } catch (err) {
@@ -213,12 +242,107 @@ export default function Home() {
         setIsTyping(false);
       }
     },
-    [selectedScenario, isCallActive, messages, ttsEnabled, playTTS]
+    [playTTS]
   );
+
+  // Живой разговор: авто-отправка по паузе, half-duplex с TTS
+  const liveConversation = useLiveConversation({
+    onUserMessage: handleSendMessage,
+    isBotSpeaking: isBotSpeaking || isTyping,
+    silenceThreshold: 1500,
+    minMessageLength: 3,
+  });
+
+  // Ошибки live-режима показываем тостом
+  useEffect(() => {
+    if (liveConversation.error) {
+      toast({
+        title: 'Ошибка микрофона',
+        description: liveConversation.error,
+        variant: 'destructive',
+      });
+    }
+  }, [liveConversation.error]);
+
+  // При активации live-режима — стартуем звонок, если ещё не активен
+  const handleLiveStart = useCallback(async () => {
+    if (!selectedScenario) {
+      toast({
+        title: 'Выберите сценарий',
+        description: 'Сначала выберите тип клиента из списка слева.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Если звонок ещё не активен — инициализируем
+    if (!isCallActive) {
+      setMessages([]);
+      messagesRef.current = [];
+      setFeedback(null);
+      setIsCallActive(true);
+      isCallActiveRef.current = true;
+      callStartRef.current = Date.now();
+
+      // Получаем первую реплику клиента
+      setIsTyping(true);
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scenarioId: selectedScenario.id,
+            messages: [],
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Ошибка при инициации звонка');
+        }
+
+        const data = await res.json();
+        const clientMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: data.response,
+          timestamp: Date.now(),
+        };
+        messagesRef.current = [clientMessage];
+        setMessages([clientMessage]);
+        setIsTyping(false);
+
+        if (ttsEnabled) {
+          playTTS(data.response);
+        }
+      } catch (err) {
+        console.error('Live start error:', err);
+        toast({
+          title: 'Ошибка звонка',
+          description: err instanceof Error ? err.message : 'Не удалось начать звонок',
+          variant: 'destructive',
+        });
+        setIsTyping(false);
+        setIsCallActive(false);
+        isCallActiveRef.current = false;
+        return;
+      }
+    }
+
+    // Запускаем микрофон
+    liveConversation.start();
+  }, [selectedScenario, isCallActive, ttsEnabled, playTTS, liveConversation]);
+
+  const handleLiveStop = useCallback(() => {
+    liveConversation.stop();
+    cancelTTS();
+  }, [liveConversation, cancelTTS]);
 
   const handleEndCall = useCallback(async () => {
     if (!isCallActive) return;
+    liveConversation.stop();
     setIsCallActive(false);
+    isCallActiveRef.current = false;
     setIsTyping(false);
     setIsProcessingVoice(false);
 
@@ -266,16 +390,19 @@ export default function Home() {
   }, [isCallActive, messages, selectedScenario, cancelTTS]);
 
   const handleReset = useCallback(() => {
+    liveConversation.stop();
     setMessages([]);
+    messagesRef.current = [];
     setFeedback(null);
     setIsCallActive(false);
+    isCallActiveRef.current = false;
     setIsTyping(false);
     setIsProcessingVoice(false);
     if (audioRef.current) {
       audioRef.current.pause();
     }
     cancelTTS();
-  }, [cancelTTS]);
+  }, [cancelTTS, liveConversation]);
 
   const handleSelectScenario = (scenario: Scenario) => {
     if (isCallActive) {
@@ -481,6 +608,15 @@ export default function Home() {
             onSelectVoice={setSelectedVoice}
             hasRussianVoice={hasRussianVoice}
             onTestVoice={handleTestVoice}
+            liveMode={{
+              isActive: liveConversation.isActive,
+              isListening: liveConversation.isListening,
+              isBotSpeaking: isBotSpeaking,
+              isProcessing: isTyping,
+              currentTranscript: liveConversation.currentTranscript,
+              onStart: handleLiveStart,
+              onStop: handleLiveStop,
+            }}
           />
         </div>
 
@@ -532,6 +668,15 @@ export default function Home() {
             onSelectVoice={setSelectedVoice}
             hasRussianVoice={hasRussianVoice}
             onTestVoice={handleTestVoice}
+            liveMode={{
+              isActive: liveConversation.isActive,
+              isListening: liveConversation.isListening,
+              isBotSpeaking: isBotSpeaking,
+              isProcessing: isTyping,
+              currentTranscript: liveConversation.currentTranscript,
+              onStart: handleLiveStart,
+              onStop: handleLiveStop,
+            }}
           />
         </div>
 
@@ -562,9 +707,14 @@ export default function Home() {
                   <li className="flex gap-2">
                     <span className="font-semibold text-primary">3.</span>
                     <span>
-                      Отвечайте <b>текстом</b> или <b>голосом</b> (микрофон) —
-                      голос распознаётся на русском языке в реальном времени,
-                      текст видно под кнопкой записи.
+                      Выберите режим ответа в панели ввода:
+                      <br />
+                      <b>Текст</b> — печатаете вручную.
+                      <br />
+                      <b>Голос</b> — нажмите кнопку, скажите фразу, отправьте.
+                      <br />
+                      <b>Живой</b> — говорите без кнопок! Замолчите на 1.5 сек —
+                      ответ отправится сам. Бот отвечает голосом.
                     </span>
                   </li>
                   <li className="flex gap-2">
