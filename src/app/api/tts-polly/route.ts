@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import { applyAccents } from '@/lib/accents';
+import { applySSML, shouldUseSSML } from '@/lib/ssml';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,13 +40,47 @@ async function checkAccentizeServer(): Promise<boolean> {
   return accentizeAvailable;
 }
 
+// Кэш для авто-ударений (LRU на 1000 записей)
+const accentCache = new Map<string, string>();
+const ACCENT_CACHE_MAX = 1000;
+
+function getCachedAccent(text: string): string | null {
+  if (accentCache.has(text)) {
+    const value = accentCache.get(text)!;
+    // Move to end (LRU)
+    accentCache.delete(text);
+    accentCache.set(text, value);
+    return value;
+  }
+  return null;
+}
+
+function setCachedAccent(text: string, accented: string) {
+  if (accentCache.size >= ACCENT_CACHE_MAX) {
+    // Remove oldest
+    const firstKey = accentCache.keys().next().value;
+    if (firstKey !== undefined) {
+      accentCache.delete(firstKey);
+    }
+  }
+  accentCache.set(text, accented);
+}
+
 // Получить авто-ударения через RUAccent сервер + ручной словарь для брендов
 async function getAutoAccents(text: string): Promise<string> {
+  // Проверяем кэш
+  const cached = getCachedAccent(text);
+  if (cached !== null) {
+    console.log('[TTS-Polly] Using cached accents');
+    return cached;
+  }
+
   // Сначала применяем ручной словарь — для брендов, моделей, редких слов
   const dictAccented = applyAccents(text);
 
   const isAvailable = await checkAccentizeServer();
   if (!isAvailable) {
+    setCachedAccent(text, dictAccented);
     return dictAccented;
   }
 
@@ -70,55 +105,61 @@ async function getAutoAccents(text: string): Promise<string> {
       throw new Error('Empty response');
     }
 
-    // Если в исходном тексте есть бренды (Haval, Chery и т.д.) —
-    // берём их форму из словаря, остальное из RUAccent
-    // Простой подход: если словарь что-то заменил (отличается от оригинала),
-    // а RUAccent тоже обработал — используем словарь (он точнее для брендов)
-    // Для простоты: если бренды есть в тексте — берём словарь,
-    // иначе — RUAccent
-
+    // Комбинируем: для текста с брендами используем словарь, иначе RUAccent
     const brands = ['Haval', 'Chery', 'Geely', 'Changan', 'Tank', 'Exeed',
                     'Omoda', 'Jaecoo', 'Jetour', 'Dongfeng', 'BAIC', 'FAW', 'GAC',
                     'Jolion', 'Dargo', 'Tiggo', 'Arrizo', 'Coolray', 'Atlas',
-                    'Monjaro', 'Tugella', 'Emgrand', 'UNI-K', 'UNI-V'];
+                    'Monjaro', 'Tugella', 'Emgrand', 'UNI-K', 'UNI-V',
+                    'BYD', 'Zeekr', 'Nio', 'Xpeng', 'Hongqi', 'JAC',
+                    'Great Wall', 'Wey', 'Li Auto'];
     const hasBrands = brands.some(b => text.includes(b));
 
-    if (hasBrands) {
-      // Комбинируем: RUAccent для общего текста, но бренды берём из словаря
-      // Простой способ — применить словарь к результату RUAccent
-      // (он не тронет уже расставленные бренды, потому что они не в его словаре)
-      // Но это сложно. Проще — для текста с брендами используем словарь
-      return dictAccented;
-    }
-
-    return ruaccented;
+    const result = hasBrands ? dictAccented : ruaccented;
+    setCachedAccent(text, result);
+    return result;
   } catch (err) {
     console.warn('[TTS-Polly] RUAccent failed, fallback to dictionary:', err);
     accentizeAvailable = false;
     setTimeout(() => { accentizeAvailable = null; }, 5000);
+    setCachedAccent(text, dictAccented);
     return dictAccented;
   }
 }
 
 // Amazon Polly имеет лимит ~1500 символов
+// Безопасная разбивка — не разрывает SSML-теги
 function splitTextIntoChunks(text: string, maxLength = 1000): string[] {
   const chunks: string[] = [];
-  const sentences = text.match(/[^.!?]+[.!?]+|\S+[^.!?]*$/g) || [text];
+
+  // Разбиваем по предложениям, сохраняя знаки препинания
+  // Учитываем, что внутри предложений могут быть SSML-теги с точками/восклицаниями
+  // Простое решение — сначала разбиваем по «. », потом проверяем теги
+
+  // Сначала проверим, что текст не слишком длинный — если да, разобьём
+  if (text.length <= maxLength) {
+    return [text];
+  }
+
+  // Разбиваем по предложениям
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [text];
 
   let currentChunk = '';
   for (const sentence of sentences) {
     if ((currentChunk + sentence).length <= maxLength) {
       currentChunk += sentence;
     } else {
-      if (currentChunk) chunks.push(currentChunk.trim());
+      if (currentChunk) {
+        // Проверим, что текущий чанк не заканчивается разорванным тегом
+        chunks.push(balanceSSML(currentChunk.trim()));
+      }
       if (sentence.length > maxLength) {
-        const words = sentence.split(' ');
-        currentChunk = '';
+        // Разбиваем по словам, но не разрываем SSML-теги
+        const words = splitPreservingTags(sentence, maxLength);
         for (const word of words) {
           if ((currentChunk + ' ' + word).length <= maxLength) {
             currentChunk = (currentChunk + ' ' + word).trim();
           } else {
-            if (currentChunk) chunks.push(currentChunk);
+            if (currentChunk) chunks.push(balanceSSML(currentChunk));
             currentChunk = word;
           }
         }
@@ -127,11 +168,103 @@ function splitTextIntoChunks(text: string, maxLength = 1000): string[] {
       }
     }
   }
-  if (currentChunk) chunks.push(currentChunk.trim());
+  if (currentChunk) chunks.push(balanceSSML(currentChunk.trim()));
   return chunks;
 }
 
+// Разбивает строку на части, не разрывая SSML-теги
+function splitPreservingTags(text: string, maxLength: number): string[] {
+  const parts: string[] = [];
+  // Простая стратегия: разбиваем по пробелам, но проверяем, что не внутри тега
+  let current = '';
+  let inTag = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '<') inTag = true;
+    current += ch;
+    if (ch === '>') inTag = false;
+
+    if (ch === ' ' && !inTag && current.length >= maxLength) {
+      parts.push(current.trim());
+      current = '';
+    }
+  }
+  if (current) parts.push(current.trim());
+  return parts;
+}
+
+// Закрывает незакрытые SSML-теги в чанке
+function balanceSSML(text: string): string {
+  // Подсчитываем открытые и закрытые теги
+  const openTags = text.match(/<(prosody|emphasis|break|speak|phoneme|amazon:domain)[^>]*>/g) || [];
+  const closeTags = text.match(/<\/(prosody|emphasis|speak|phoneme|amazon:domain)>/g) || [];
+
+  // <break> не нужно закрывать
+  const openWithoutBreak = openTags.filter(t => !t.startsWith('<break'));
+
+  // Если открытых больше, чем закрытых — добавим закрывающие
+  const unclosedCount = openWithoutBreak.length - closeTags.length;
+  if (unclosedCount > 0) {
+    // Найдём какие теги не закрыты
+    const openTagNames = openWithoutBreak.map(t => t.match(/<(\w+)/)?.[1]).filter(Boolean) as string[];
+    const closeTagNames = closeTags.map(t => t.match(/<\/(\w+)/)?.[1]).filter(Boolean) as string[];
+
+    // Найдём незакрытые
+    const unclosed: string[] = [];
+    const closeCopy = [...closeTagNames];
+    for (const name of openTagNames) {
+      const idx = closeCopy.indexOf(name);
+      if (idx >= 0) {
+        closeCopy.splice(idx, 1);
+      } else {
+        unclosed.push(name);
+      }
+    }
+
+    // Добавим закрывающие теги в обратном порядке
+    let result = text;
+    for (const name of unclosed.reverse()) {
+      result += `</${name}>`;
+    }
+    return result;
+  }
+  return text;
+}
+
+// Кэш для MP3-аудио (LRU на 100 записей, чтобы не раздуть память)
+const audioCache = new Map<string, Buffer>();
+const AUDIO_CACHE_MAX = 100;
+
+function getCachedAudio(key: string): Buffer | null {
+  if (audioCache.has(key)) {
+    const value = audioCache.get(key)!;
+    audioCache.delete(key);
+    audioCache.set(key, value);
+    return value;
+  }
+  return null;
+}
+
+function setCachedAudio(key: string, audio: Buffer) {
+  if (audioCache.size >= AUDIO_CACHE_MAX) {
+    const firstKey = audioCache.keys().next().value;
+    if (firstKey !== undefined) {
+      audioCache.delete(firstKey);
+    }
+  }
+  audioCache.set(key, audio);
+}
+
 async function generateChunk(text: string, voice: string): Promise<Buffer> {
+  // Проверяем кэш аудио
+  const cacheKey = `${voice}:${text}`;
+  const cached = getCachedAudio(cacheKey);
+  if (cached) {
+    console.log('[TTS-Polly] Using cached audio');
+    return cached;
+  }
+
   // ttsmp3.com API: возвращает JSON с URL на MP3
   const body = new URLSearchParams({
     msg: text,
@@ -171,7 +304,12 @@ async function generateChunk(text: string, voice: string): Promise<Buffer> {
   }
 
   const arrayBuffer = await mp3Res.arrayBuffer();
-  return Buffer.from(new Uint8Array(arrayBuffer));
+  const buffer = Buffer.from(new Uint8Array(arrayBuffer));
+
+  // Сохраняем в кэш
+  setCachedAudio(cacheKey, buffer);
+
+  return buffer;
 }
 
 export async function POST(req: NextRequest) {
@@ -187,14 +325,21 @@ export async function POST(req: NextRequest) {
 
     const pollyVoice = VOICE_MAP[voice] || VOICE_MAP.male;
 
-    // Применяем ударения через RUAccent (нейросеть) с fallback на ручной словарь
+    // 1. Применяем ударения через RUAccent (нейросеть) с fallback на ручной словарь
     const accentedText = await getAutoAccents(text);
     if (accentedText !== text) {
       console.log(`[TTS-Polly] Applied accents. Original: "${text.slice(0, 60)}..." → Accented: "${accentedText.slice(0, 60)}..."`);
     }
 
-    const chunks = splitTextIntoChunks(accentedText, 1000);
-    console.log(`[TTS-Polly] voice=${pollyVoice}, chunks=${chunks.length}, total_chars=${accentedText.length}`);
+    // 2. Применяем SSML-разметку (паузы, замедление, акценты)
+    let finalText = accentedText;
+    if (shouldUseSSML(accentedText)) {
+      finalText = applySSML(accentedText);
+      console.log(`[TTS-Polly] Applied SSML: ${finalText.slice(0, 80)}...`);
+    }
+
+    const chunks = splitTextIntoChunks(finalText, 1000);
+    console.log(`[TTS-Polly] voice=${pollyVoice}, chunks=${chunks.length}, total_chars=${finalText.length}`);
 
     // Генерируем части с retry
     const buffers: Buffer[] = [];
