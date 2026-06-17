@@ -52,7 +52,6 @@ export default function Home() {
 
   // Разблокируем audio при первом взаимодействии пользователя со страницей.
   // Это нужно из-за autoplay policy — без этого audio.play() будет молча падать
-  // и может сработать fallback на системный TTS (который звучит робо-)
   useEffect(() => {
     let unlocked = false;
 
@@ -60,26 +59,40 @@ export default function Home() {
       if (unlocked) return;
       unlocked = true;
       if (audioRef.current) {
-        // Создаём тихий сигнал, чтобы разблокировать audio
+        // Создаём короткий тихий сигнал через Web Audio API
         try {
           const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
           const oscillator = audioCtx.createOscillator();
           const gain = audioCtx.createGain();
-          gain.gain.value = 0; // Тихо
+          gain.gain.value = 0.001; // Почти тихо
           oscillator.connect(gain);
           gain.connect(audioCtx.destination);
           oscillator.start();
-          oscillator.stop(audioCtx.currentTime + 0.01);
+          oscillator.stop(audioCtx.currentTime + 0.05);
           console.log('[Audio] AudioContext unlocked');
         } catch (e) {
           console.warn('[Audio] AudioContext unlock failed:', e);
         }
 
-        // Также разблокируем audio элемент
-        audioRef.current.play().then(() => {
-          audioRef.current?.pause();
-          console.log('[Audio] Audio element unlocked');
-        }).catch(() => {});
+        // Также разблокируем audio элемент через data URI (1 секунда тишины)
+        try {
+          const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+          audioRef.current.src = silentWav;
+          audioRef.current.volume = 0;
+          audioRef.current.play().then(() => {
+            audioRef.current!.pause();
+            audioRef.current!.volume = 1;
+            audioRef.current!.src = '';
+            console.log('[Audio] Audio element unlocked with silent wav');
+          }).catch((e) => {
+            console.warn('[Audio] Silent play failed:', e.message);
+          });
+        } catch (e) {
+          console.warn('[Audio] Audio element unlock failed:', e);
+        }
       }
     };
 
@@ -321,6 +334,20 @@ export default function Home() {
 
   // Тестовый голос — чтобы пользователь мог проверить, как звучит
   const handleTestVoice = useCallback(() => {
+    // Разблокируем audio (пользователь кликнул кнопку «Тест»)
+    if (audioRef.current) {
+      const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      audioRef.current.src = silentWav;
+      audioRef.current.volume = 0;
+      audioRef.current.play().then(() => {
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.volume = 1;
+          audioRef.current.src = '';
+        }
+        console.log('[Audio] Unlocked on Test button');
+      }).catch(() => {});
+    }
     playTTS(
       `Здравствуйте! Это тестовое сообщение. ${neuralVoiceRef.current === 'male' ? 'Меня зовут Максим, мужской голос.' : 'Меня зовут Татьяна, женский голос.'} Если вы слышите меня на русском языке, озвучка настроена правильно.`
     );
@@ -378,6 +405,22 @@ export default function Home() {
         variant: 'destructive',
       });
       return;
+    }
+
+    // Принудительно разблокируем audio прямо сейчас (пользователь кликнул кнопку)
+    if (audioRef.current) {
+      try {
+        const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+        audioRef.current.src = silentWav;
+        audioRef.current.volume = 0;
+        await audioRef.current.play();
+        audioRef.current.pause();
+        audioRef.current.volume = 1;
+        audioRef.current.src = '';
+        console.log('[Audio] Unlocked on Accept Call button');
+      } catch (e) {
+        console.warn('[Audio] Unlock on Accept Call failed:', e);
+      }
     }
 
     setMessages([]);
