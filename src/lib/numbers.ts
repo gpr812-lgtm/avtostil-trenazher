@@ -93,46 +93,25 @@ function numberToText(n: number): string {
   return text;
 }
 
-// Дробное число в текст
-// 2.8 → "две целых восемь десятых"
-// 2.5 → "две целых пять десятых"
-// 2.85 → "две целых восемьдесят пять сотых"
+// Дробное число в разговорный текст
+// 2.8 → "два и восемь" (как говорят в жизни, а не "две целых восемь десятых")
+// 2.5 → "два и пять"
+// 2.85 → "два и восемьдесят пять"
+// 1.5 → "полтора" (особый случай)
 function decimalToText(n: number): string {
   const parts = n.toString().split('.');
   const intPart = parseInt(parts[0], 10);
   const decPart = parts[1] || '';
 
-  // Для int=1 используем «одна» (женский род, т.к. «целая»)
-  const intText = intPart === 1 ? 'одна' : numberToText(intPart);
+  const intText = numberToText(intPart);
 
   if (decPart.length === 0) return intText;
 
   const decNum = parseInt(decPart, 10);
-  let decText: string;
-  let unitForm: [string, string, string];
 
-  if (decPart.length === 1) {
-    decText = numberToTextBelow1000(decNum, false);
-    unitForm = ['десятая', 'десятых', 'десятых'];
-  } else if (decPart.length === 2) {
-    decText = numberToTextBelow1000(decNum, false);
-    unitForm = ['сотая', 'сотых', 'сотых'];
-  } else if (decPart.length === 3) {
-    decText = numberToTextBelow1000(decNum, false);
-    unitForm = ['тысячная', 'тысячных', 'тысячных'];
-  } else {
-    decText = decPart.split('').map(d => ONES[parseInt(d, 10)]).join(' ');
-    unitForm = ['', '', ''];
-  }
-
-  // Для «целая/целых»: 1 → «целая», остальное → «целых»
-  const intForm = intPart === 1 ? 'целая' : 'целых';
-
-  if (decPart.length <= 3) {
-    return `${intText} ${intForm} ${decText} ${getForm(decNum, unitForm)}`;
-  } else {
-    return `${intText} ${intForm} ${decText}`;
-  }
+  // Разговорный стиль: "два и восемь" вместо "две целых восемь десятых"
+  const decText = numberToTextBelow1000(decNum, true);
+  return `${intText} и ${decText}`;
 }
 
 // Применяет нормализацию чисел к тексту
@@ -140,7 +119,7 @@ export function normalizeNumbers(text: string): string {
   let result = text;
 
   // 1. Дробные числа с единицами измерения двигателя: "2.0 л", "1.5 турбо", "2.0 литра"
-  // → "два литра", "одна целая пять десятых литра"
+  // → "два литра", "полтора литра"
   // Для объёма двигателя упрощаем: 2.0 → "два литра", 1.5 → "полтора литра"
   // Важно: используем [а-яё]* вместо \w*, т.к. \w не работает с кириллицей
   result = result.replace(/(\d+\.\d+)\s+(литр[а-яё]*|л(?![а-яёА-ЯЁ]))/gi, (match, num) => {
@@ -154,7 +133,7 @@ export function normalizeNumbers(text: string): string {
     return `${decText} ли́тра`;
   });
 
-  // 2. Дробные числа с миллионами/тысячами/рублями: "2.8 миллиона" → "две целых восемь десятых миллиона"
+  // 2. Дробные числа с миллионами/тысячами/рублями: "2.8 миллиона" → "два и восемь миллиона"
   result = result.replace(/(\d+\.\d+)\s+(миллион[а-яё]*|тысяч[а-яё]*|рубл[а-яё]*|миллиард[а-яё]*)/gi, (match, num, unit) => {
     const n = parseFloat(num);
     if (Math.abs(n - 1.5) < 0.001) return `полтора́ ${unit}`;
