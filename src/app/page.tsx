@@ -164,9 +164,9 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  // Нейронный TTS — всегда через Google Translate (быстро ~100мс, стабильно)
-  // ♂ Мужской: Google TTS + pitch shift вниз через Web Audio API
-  // ♀ Женский: Google TTS как есть
+  // Нейронный TTS — Amazon Polly через ttsmp3.com
+  // ♂ Мужской: Maxim (настоящий мужской русский голос)
+  // ♀ Женский: Tatyana (настоящий женский русский голос)
   const playNeuralTTS = useCallback(
     (text: string) => {
       // Останавливаем системный TTS если он был
@@ -175,17 +175,17 @@ export default function Home() {
 
       const voice = neuralVoiceRef.current;
       const isMale = voice === 'male';
-      const voiceName = isMale ? 'Мужской (♂, пониженный)' : 'Женский (♀, Google)';
+      const voiceName = isMale ? 'Максим (♂, Amazon Polly)' : 'Татьяна (♀, Amazon Polly)';
 
       console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
 
-      // Только Google TTS — быстро (100мс) и стабильно
+      // Используем Polly — настоящий мужской и женский голоса
       const tryFetch = async (attempt: number): Promise<Blob> => {
         console.log(`[TTS-Neural] Attempt ${attempt}/3`);
-        const res = await fetch('/api/tts-neural', {
+        const res = await fetch('/api/tts-polly', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, voice }),
         });
 
         if (!res.ok) {
@@ -200,17 +200,17 @@ export default function Home() {
         return blob;
       };
 
-      // Только 2 попытки — Google обычно работает с первого раза
+      // 3 попытки — Polly обычно работает с первого раза
       const fetchWithRetry = async (): Promise<Blob> => {
         let lastError: Error | null = null;
-        for (let attempt = 1; attempt <= 2; attempt++) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             return await tryFetch(attempt);
           } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
             console.warn(`[TTS-Neural] Attempt ${attempt} failed:`, lastError.message);
-            if (attempt < 2) {
-              await new Promise((r) => setTimeout(r, 200));
+            if (attempt < 3) {
+              await new Promise((r) => setTimeout(r, 200 * attempt));
             }
           }
         }
@@ -218,23 +218,10 @@ export default function Home() {
       };
 
       fetchWithRetry()
-        .then(async (blob) => {
+        .then((blob) => {
           console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, voice=${voiceName}`);
-
-          // Для мужского голоса — понизим pitch через Web Audio API
-          if (isMale) {
-            try {
-              await playWithPitchShift(blob, 0.75); // 0.75 = понижение на 25%
-              setIsNeuralPlaying(false);
-              return;
-            } catch (err) {
-              console.warn('[TTS-Neural] Pitch shift failed, playing original:', err);
-              // Fallback — играем как есть (женский голос)
-            }
-          }
-
-          // Обычное воспроизведение (женский голос)
           const url = URL.createObjectURL(blob);
+
           const playAudio = (audio: HTMLAudioElement): Promise<void> => {
             audio.src = url;
             audio.onended = () => {
@@ -283,49 +270,13 @@ export default function Home() {
           setIsNeuralPlaying(false);
           toast({
             title: 'Нейронный голос недоступен',
-            description: `Google TTS не ответил. Проверьте интернет или переключитесь на режим «ОС».`,
+            description: `Amazon Polly не ответил. Проверьте интернет или переключитесь на режим «ОС».`,
             variant: 'destructive',
           });
         });
     },
     [cancelTTS]
   );
-
-  // Воспроизведение аудио с изменением pitch (без изменения темпа)
-  // через Web Audio API + playbackRate
-  const playWithPitchShift = async (blob: Blob, rate: number): Promise<void> => {
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-
-    // Разблокируем context, если он suspended (autoplay policy)
-    if (audioCtx.state === 'suspended') {
-      await audioCtx.resume();
-    }
-
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = rate; // 0.75 = понижение тона + замедление
-
-    const gain = audioCtx.createGain();
-    gain.gain.value = 1.0;
-
-    source.connect(gain);
-    gain.connect(audioCtx.destination);
-
-    return new Promise((resolve, reject) => {
-      source.onended = () => {
-        audioCtx.close();
-        resolve();
-      };
-      source.onerror = (e) => {
-        audioCtx.close();
-        reject(e);
-      };
-      source.start();
-    });
-  };
 
   // Универсальная функция озвучки: выбирает нейронный или системный
   const playTTS = useCallback(
@@ -355,7 +306,7 @@ export default function Home() {
   // Тестовый голос — чтобы пользователь мог проверить, как звучит
   const handleTestVoice = useCallback(() => {
     playTTS(
-      `Здравствуйте! Это тестовый голос. ${neuralVoiceRef.current === 'male' ? 'Мужской голос, Дмитрий.' : 'Женский голос.'} Если вы слышите меня на русском языке, озвучка настроена правильно.`
+      `Здравствуйте! Это тестовый голос. ${neuralVoiceRef.current === 'male' ? 'Мужской голос, Максим.' : 'Женский голос, Татьяна.'} Если вы слышите меня на русском языке, озвучка настроена правильно.`
     );
   }, [playTTS]);
 
