@@ -7,7 +7,7 @@ import os from 'os';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 interface RequestBody {
   text: string;
@@ -127,20 +127,20 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < chunks.length; i++) {
       let buf: Buffer | null = null;
       let lastError: Error | null = null;
-      // До 3 попыток
-      for (let attempt = 0; attempt < 3; attempt++) {
+      // До 5 попыток — Edge TTS часто капризничает
+      for (let attempt = 0; attempt < 5; attempt++) {
         try {
           buf = await generateChunk(chunks[i], edgeVoice, tmpDir, i);
           break;
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
-          console.warn(`[TTS-Edge] Attempt ${attempt + 1} failed for chunk ${i}:`, lastError.message);
-          // Ждём перед ретраем
+          console.warn(`[TTS-Edge] Attempt ${attempt + 1}/5 failed for chunk ${i}:`, lastError.message);
+          // Ждём дольше на каждой попытке
           await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
         }
       }
       if (!buf) {
-        throw lastError || new Error('Edge TTS failed after retries');
+        throw lastError || new Error('Edge TTS failed after 5 retries');
       }
       buffers.push(buf);
     }

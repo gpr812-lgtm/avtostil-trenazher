@@ -46,6 +46,37 @@ export default function Home() {
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
+  const audioUnlockedRef = useRef(false);
+
+  // Разблокируем audio при первом взаимодействии пользователя со страницей.
+  // Это нужно из-за autoplay policy — без этого audio.play() будет молча падать
+  // и может сработать fallback на системный TTS (который звучит робо-)
+  useEffect(() => {
+    const unlock = () => {
+      if (audioUnlockedRef.current) return;
+      if (audioRef.current) {
+        // Пробуем play() пустого источника — это разблокирует audio контекст
+        audioRef.current.play().then(() => {
+          audioRef.current?.pause();
+          audioUnlockedRef.current = true;
+          console.log('[Audio] Unlocked successfully');
+        }).catch(() => {
+          // Даже если ошибка — помечаем как разблокированный, попробуем при следующем клике
+          audioUnlockedRef.current = true;
+        });
+      }
+    };
+
+    document.addEventListener('click', unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true });
+    document.addEventListener('keydown', unlock, { once: true });
+
+    return () => {
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('touchstart', unlock);
+      document.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   // Refs для стабильных callbacks в live-режиме
   const messagesRef = useRef<Message[]>([]);
@@ -120,55 +151,115 @@ export default function Home() {
   // Нейронный TTS через Microsoft Edge (мужской/женский, звучит естественно)
   const playNeuralTTS = useCallback(
     (text: string) => {
-      if (!audioRef.current) return;
-
-      // Останавливаем предыдущее воспроизведение
-      audioRef.current.pause();
-
+      // Останавливаем системный TTS если он был
+      cancelTTS();
       setIsNeuralPlaying(true);
 
       const voice = neuralVoiceRef.current;
-      console.log(`[TTS-Neural] Generating with voice=${voice}, text="${text.slice(0, 50)}..."`);
+      const voiceName = voice === 'male' ? 'Дмитрий (♂)' : 'Светлана (♀)';
+      console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
 
-      fetch('/api/tts-edge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice }),
-      })
-        .then((res) => {
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+      // Retry до 4 попыток — Edge TTS иногда капризничает
+      const tryFetch = async (attempt: number): Promise<Blob> => {
+        console.log(`[TTS-Neural] Attempt ${attempt}/4`);
+        const res = await fetch('/api/tts-edge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        }
+
+        const blob = await res.blob();
+        if (blob.size < 100) {
+          throw new Error(`Слишком маленький ответ: ${blob.size} bytes`);
+        }
+        return blob;
+      };
+
+      const fetchWithRetry = async (): Promise<Blob> => {
+        let lastError: Error | null = null;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            return await tryFetch(attempt);
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.warn(`[TTS-Neural] Attempt ${attempt} failed:`, lastError.message);
+            if (attempt < 4) {
+              await new Promise((r) => setTimeout(r, 300 * attempt));
+            }
           }
-          return res.blob();
-        })
+        }
+        throw lastError;
+      };
+
+      fetchWithRetry()
         .then((blob) => {
+          console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, playing ${voiceName}`);
           const url = URL.createObjectURL(blob);
-          if (audioRef.current) {
-            audioRef.current.src = url;
-            audioRef.current.onended = () => {
+
+          // Используем существующий audioRef, но если autoplay заблокирован —
+          // попробуем через новый Audio()
+          const playAudio = (audio: HTMLAudioElement): Promise<void> => {
+            audio.src = url;
+            audio.onended = () => {
               setIsNeuralPlaying(false);
               URL.revokeObjectURL(url);
             };
-            audioRef.current.onerror = () => {
+            audio.onerror = () => {
               setIsNeuralPlaying(false);
               console.error('[TTS-Neural] Audio playback error');
             };
-            audioRef.current.play().catch((err) => {
-              console.error('[TTS-Neural] Play error:', err);
+            return audio.play();
+          };
+
+          if (audioRef.current) {
+            playAudio(audioRef.current).catch((err) => {
+              console.warn('[TTS-Neural] audioRef.play failed, trying new Audio():', err.message);
+              // Попытка через новый Audio — иногда работает, когда ref не работает
+              const newAudio = new Audio(url);
+              newAudio.onended = () => {
+                setIsNeuralPlaying(false);
+                URL.revokeObjectURL(url);
+              };
+              newAudio.play().catch((err2) => {
+                console.error('[TTS-Neural] new Audio failed too:', err2);
+                setIsNeuralPlaying(false);
+                toast({
+                  title: 'Не удалось воспроизвести',
+                  description: 'Кликните куда-нибудь на странице и попробуйте снова. Браузер блокирует автозапуск аудио.',
+                  variant: 'destructive',
+                });
+              });
+            });
+          } else {
+            // Fallback — новый Audio
+            const newAudio = new Audio(url);
+            newAudio.onended = () => {
+              setIsNeuralPlaying(false);
+              URL.revokeObjectURL(url);
+            };
+            newAudio.play().catch((err) => {
+              console.error('[TTS-Neural] Audio play failed:', err);
               setIsNeuralPlaying(false);
             });
           }
         })
         .catch((err) => {
-          console.error('[TTS-Neural] Fetch error:', err);
+          console.error('[TTS-Neural] All retries failed:', err.message);
           setIsNeuralPlaying(false);
-          // Fallback на системный голос
-          if (ttsSupported) {
-            speakTTS(text);
-          }
+          // Явное предупреждение пользователю — НЕ переключаемся молча на системный
+          toast({
+            title: 'Нейронный голос недоступен',
+            description: `Edge TTS не ответил после 4 попыток. Проверьте интернет или переключитесь на режим «ОС».`,
+            variant: 'destructive',
+          });
         });
     },
-    [ttsSupported, speakTTS]
+    [cancelTTS]
   );
 
   // Универсальная функция озвучки: выбирает нейронный или системный

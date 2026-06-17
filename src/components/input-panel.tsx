@@ -382,10 +382,18 @@ export function InputPanel({
               </div>
             )}
 
-            <span className="text-[10px] text-muted-foreground ml-auto">
-              {ttsMode === 'neural'
-                ? neuralVoice === 'male' ? 'Дмитрий' : 'Светлана'
-                : hasRussianVoice ? (selectedVoice?.name || 'Системный') : 'Не настроен'}
+            <span className="text-[11px] font-medium text-primary ml-auto flex items-center gap-1">
+              {ttsMode === 'neural' ? (
+                <>
+                  <Sparkles className="w-3 h-3" />
+                  {neuralVoice === 'male' ? 'Дмитрий (♂)' : 'Светлана (♀)'}
+                </>
+              ) : (
+                <>
+                  <Cpu className="w-3 h-3" />
+                  {hasRussianVoice ? (selectedVoice?.name || 'Системный') : 'Не настроен'}
+                </>
+              )}
             </span>
           </div>
         )}
