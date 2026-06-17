@@ -1,0 +1,8 @@
+{
+  "name": "accentize-service",
+  "version": "1.0.0",
+  "description": "RUAccent HTTP server for Russian stress marks",
+  "scripts": {
+    "dev": "python3 /home/z/my-project/scripts/accentize_server.py --port 8765"
+  }
+}

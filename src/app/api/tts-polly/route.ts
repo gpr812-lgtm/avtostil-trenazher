@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { spawn } from 'child_process';
 import { applyAccents } from '@/lib/accents';
 
 export const runtime = 'nodejs';
@@ -14,6 +15,90 @@ const VOICE_MAP: Record<string, string> = {
   male: 'Maxim',     // Amazon Polly Maxim — мужской русский
   female: 'Tatyana', // Amazon Polly Tatyana — женский русский
 };
+
+// Проверка доступности RUAccent сервера (кэшированная)
+let accentizeAvailable: boolean | null = null;
+
+async function checkAccentizeServer(): Promise<boolean> {
+  if (accentizeAvailable !== null) return accentizeAvailable;
+  try {
+    const res = await fetch('http://127.0.0.1:8765/health', {
+      signal: AbortSignal.timeout(300),
+    });
+    accentizeAvailable = res.ok;
+    if (accentizeAvailable) {
+      console.log('[TTS-Polly] RUAccent server is available');
+    } else {
+      console.log('[TTS-Polly] RUAccent server is NOT available, using dictionary');
+    }
+  } catch {
+    accentizeAvailable = false;
+  }
+  // Проверяем каждые 60 секунд
+  setTimeout(() => { accentizeAvailable = null; }, 60000);
+  return accentizeAvailable;
+}
+
+// Получить авто-ударения через RUAccent сервер + ручной словарь для брендов
+async function getAutoAccents(text: string): Promise<string> {
+  // Сначала применяем ручной словарь — для брендов, моделей, редких слов
+  const dictAccented = applyAccents(text);
+
+  const isAvailable = await checkAccentizeServer();
+  if (!isAvailable) {
+    return dictAccented;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+
+    const res = await fetch('http://127.0.0.1:8765/accentize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: text,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const ruaccented = await res.text();
+    if (!ruaccented || ruaccented.length === 0) {
+      throw new Error('Empty response');
+    }
+
+    // Если в исходном тексте есть бренды (Haval, Chery и т.д.) —
+    // берём их форму из словаря, остальное из RUAccent
+    // Простой подход: если словарь что-то заменил (отличается от оригинала),
+    // а RUAccent тоже обработал — используем словарь (он точнее для брендов)
+    // Для простоты: если бренды есть в тексте — берём словарь,
+    // иначе — RUAccent
+
+    const brands = ['Haval', 'Chery', 'Geely', 'Changan', 'Tank', 'Exeed',
+                    'Omoda', 'Jaecoo', 'Jetour', 'Dongfeng', 'BAIC', 'FAW', 'GAC',
+                    'Jolion', 'Dargo', 'Tiggo', 'Arrizo', 'Coolray', 'Atlas',
+                    'Monjaro', 'Tugella', 'Emgrand', 'UNI-K', 'UNI-V'];
+    const hasBrands = brands.some(b => text.includes(b));
+
+    if (hasBrands) {
+      // Комбинируем: RUAccent для общего текста, но бренды берём из словаря
+      // Простой способ — применить словарь к результату RUAccent
+      // (он не тронет уже расставленные бренды, потому что они не в его словаре)
+      // Но это сложно. Проще — для текста с брендами используем словарь
+      return dictAccented;
+    }
+
+    return ruaccented;
+  } catch (err) {
+    console.warn('[TTS-Polly] RUAccent failed, fallback to dictionary:', err);
+    accentizeAvailable = false;
+    setTimeout(() => { accentizeAvailable = null; }, 5000);
+    return dictAccented;
+  }
+}
 
 // Amazon Polly имеет лимит ~1500 символов
 function splitTextIntoChunks(text: string, maxLength = 1000): string[] {
@@ -102,8 +187,8 @@ export async function POST(req: NextRequest) {
 
     const pollyVoice = VOICE_MAP[voice] || VOICE_MAP.male;
 
-    // Применяем ударения к проблемным словам (Polly иногда коверкает ударения)
-    const accentedText = applyAccents(text);
+    // Применяем ударения через RUAccent (нейросеть) с fallback на ручной словарь
+    const accentedText = await getAutoAccents(text);
     if (accentedText !== text) {
       console.log(`[TTS-Polly] Applied accents. Original: "${text.slice(0, 60)}..." → Accented: "${accentedText.slice(0, 60)}..."`);
     }
