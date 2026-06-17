@@ -21,6 +21,7 @@ import { CarCatalog } from '@/components/car-catalog';
 import { Dialogue, Message } from '@/components/dialogue';
 import { InputPanel } from '@/components/input-panel';
 import { FeedbackPanel, Feedback } from '@/components/feedback-panel';
+import { ShopperFeedback } from '@/lib/shopper';
 import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
 import { useLiveConversation } from '@/hooks/use-live-conversation';
 import { toast } from '@/hooks/use-toast';
@@ -39,6 +40,8 @@ export default function Home() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
+  const [shopperFeedback, setShopperFeedback] = useState<ShopperFeedback | null>(null);
+  const [isShopperLoading, setIsShopperLoading] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsMode, setTtsMode] = useState<'neural' | 'system'>('neural');
   const [neuralVoice, setNeuralVoice] = useState<'male' | 'female'>('male');
@@ -367,6 +370,7 @@ export default function Home() {
     setMessages([]);
     messagesRef.current = [];
     setFeedback(null);
+    setShopperFeedback(null);
     setIsCallActive(true);
     isCallActiveRef.current = true;
     callStartRef.current = Date.now();
@@ -537,6 +541,7 @@ export default function Home() {
       setMessages([]);
       messagesRef.current = [];
       setFeedback(null);
+      setShopperFeedback(null);
       setIsCallActive(true);
       isCallActiveRef.current = true;
       callStartRef.current = Date.now();
@@ -659,12 +664,51 @@ export default function Home() {
     setMessages([]);
     messagesRef.current = [];
     setFeedback(null);
+    setShopperFeedback(null);
     setIsCallActive(false);
     isCallActiveRef.current = false;
     setIsTyping(false);
     setIsProcessingVoice(false);
     stopTTS();
   }, [stopTTS, liveConversation]);
+
+  // Загрузка шопер-оценки
+  const handleShopperLoad = useCallback(async () => {
+    if (!selectedScenario || messagesRef.current.length === 0) return;
+
+    setIsShopperLoading(true);
+    try {
+      const dialogueHistory = messagesRef.current.map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const res = await fetch('/api/shopper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenarioId: selectedScenario.id,
+          messages: dialogueHistory,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Не удалось получить оценку шопер');
+      }
+
+      const data = await res.json();
+      setShopperFeedback(data.feedback);
+    } catch (err) {
+      console.error('Shopper error:', err);
+      toast({
+        title: 'Ошибка оценки шопер',
+        description: err instanceof Error ? err.message : 'Не удалось оценить',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsShopperLoading(false);
+    }
+  }, [selectedScenario]);
 
   const handleSelectScenario = (scenario: Scenario) => {
     if (isCallActive) {
@@ -1048,14 +1092,30 @@ export default function Home() {
               </div>
             </Card>
           ) : (
-            <FeedbackPanel feedback={feedback} isLoading={isFeedbackLoading} />
+            <FeedbackPanel
+              feedback={feedback}
+              isLoading={isFeedbackLoading}
+              shopperFeedback={shopperFeedback}
+              isShopperLoading={isShopperLoading}
+              onShopperLoad={handleShopperLoad}
+              messages={messages.map(m => ({ role: m.role, content: m.content }))}
+              scenarioId={selectedScenario?.id}
+            />
           )}
         </div>
 
         {/* Мобильная версия правой колонки */}
         <div className="lg:hidden">
           {feedback || isFeedbackLoading ? (
-            <FeedbackPanel feedback={feedback} isLoading={isFeedbackLoading} />
+            <FeedbackPanel
+              feedback={feedback}
+              isLoading={isFeedbackLoading}
+              shopperFeedback={shopperFeedback}
+              isShopperLoading={isShopperLoading}
+              onShopperLoad={handleShopperLoad}
+              messages={messages.map(m => ({ role: m.role, content: m.content }))}
+              scenarioId={selectedScenario?.id}
+            />
           ) : null}
         </div>
       </div>
