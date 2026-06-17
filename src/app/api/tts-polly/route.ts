@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import { applyAccents } from '@/lib/accents';
 import { applySSML, shouldUseSSML } from '@/lib/ssml';
+import { normalizeNumbers } from '@/lib/numbers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -325,10 +326,16 @@ export async function POST(req: NextRequest) {
 
     const pollyVoice = VOICE_MAP[voice] || VOICE_MAP.male;
 
+    // 0. Нормализуем числа (2.8 → "две целых восемь десятых", 2400000 → "два миллиона...")
+    const normalizedText = normalizeNumbers(text);
+    if (normalizedText !== text) {
+      console.log(`[TTS-Polly] Normalized numbers. Original: "${text.slice(0, 60)}..." → Normalized: "${normalizedText.slice(0, 60)}..."`);
+    }
+
     // 1. Применяем ударения через RUAccent (нейросеть) с fallback на ручной словарь
-    const accentedText = await getAutoAccents(text);
-    if (accentedText !== text) {
-      console.log(`[TTS-Polly] Applied accents. Original: "${text.slice(0, 60)}..." → Accented: "${accentedText.slice(0, 60)}..."`);
+    const accentedText = await getAutoAccents(normalizedText);
+    if (accentedText !== normalizedText) {
+      console.log(`[TTS-Polly] Applied accents. Original: "${normalizedText.slice(0, 60)}..." → Accented: "${accentedText.slice(0, 60)}..."`);
     }
 
     // 2. Применяем SSML-разметку (паузы, замедление, акценты)
