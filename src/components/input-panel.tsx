@@ -161,7 +161,7 @@ export function InputPanel({
   return (
     <div className="border-t border-border bg-card/50 backdrop-blur-sm">
       <div className="p-3 space-y-2">
-        {/* Переключатель режима + TTS */}
+        {/* Строка 1: Переключатель режима ввода (Текст/Голос/Живой) */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
             <button
@@ -204,6 +204,7 @@ export function InputPanel({
             </button>
           </div>
 
+          {/* Кнопка вкл/выкл озвучки + Тест */}
           <div className="flex items-center gap-1">
             <button
               onClick={onToggleTts}
@@ -221,68 +222,90 @@ export function InputPanel({
               </span>
             </button>
 
+            {/* Кнопка теста голоса — работает в любом режиме, доступна всегда */}
+            {ttsEnabled && (
+              <button
+                onClick={() => onTestVoice?.()}
+                disabled={isProcessing || (ttsMode === 'system' && !hasRussianVoice)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors px-2 py-1 rounded-md hover:bg-muted"
+                title="Проверить голос"
+              >
+                <Volume2 className="w-3 h-3" />
+                <span className="hidden md:inline">Тест</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Строка 2: Настройки голоса — отдельная панель, всегда видна когда озвучка включена */}
+        {ttsEnabled && (
+          <div className="flex items-center gap-2 flex-wrap bg-muted/40 border border-border rounded-lg p-2">
+            <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide hidden sm:inline">
+              Голос клиента:
+            </span>
+
             {/* Переключатель режима TTS: нейронный / системный */}
-            {ttsEnabled && onTtsModeChange && (
-              <div className="flex items-center gap-0.5 bg-muted/70 rounded-md p-0.5">
+            {onTtsModeChange && (
+              <div className="flex items-center gap-0.5 bg-card rounded-md p-0.5 border border-border">
                 <button
                   onClick={() => onTtsModeChange('neural')}
-                  className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors ${
+                  className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded transition-colors ${
                     ttsMode === 'neural'
-                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      ? 'bg-primary text-primary-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
-                  title="Нейронный голос (Google) — звучит как живой человек, нужен интернет"
+                  title="Нейронный голос (Microsoft Edge) — звучит как живой человек"
                 >
-                  <Sparkles className="w-3 h-3 text-primary" />
-                  <span className="hidden sm:inline">Нейро</span>
+                  <Sparkles className="w-3 h-3" />
+                  Нейро
                 </button>
                 <button
                   onClick={() => onTtsModeChange('system')}
-                  className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors ${
+                  className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded transition-colors ${
                     ttsMode === 'system'
-                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      ? 'bg-primary text-primary-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                   title="Системный голос — голоса из ОС, работает офлайн"
                 >
                   <Cpu className="w-3 h-3" />
-                  <span className="hidden sm:inline">ОС</span>
+                  ОС
                 </button>
               </div>
             )}
 
             {/* Выбор мужской/женский — только для нейронного режима */}
-            {ttsEnabled && ttsMode === 'neural' && onNeuralVoiceChange && (
-              <div className="flex items-center gap-0.5 bg-muted/70 rounded-md p-0.5">
+            {ttsMode === 'neural' && onNeuralVoiceChange && (
+              <div className="flex items-center gap-0.5 bg-card rounded-md p-0.5 border border-border">
                 <button
                   onClick={() => onNeuralVoiceChange('male')}
-                  className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                  className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded transition-colors ${
                     neuralVoice === 'male'
-                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      ? 'bg-primary text-primary-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                   title="Мужской голос (Дмитрий)"
                 >
-                  <span className="hidden sm:inline">♂ Муж</span>
-                  <span className="sm:hidden">М</span>
+                  <span>♂</span>
+                  Мужской
                 </button>
                 <button
                   onClick={() => onNeuralVoiceChange('female')}
-                  className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                  className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded transition-colors ${
                     neuralVoice === 'female'
-                      ? 'bg-card text-foreground shadow-sm font-medium'
+                      ? 'bg-primary text-primary-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                   title="Женский голос (Светлана)"
                 >
-                  <span className="hidden sm:inline">♀ Жен</span>
-                  <span className="sm:hidden">Ж</span>
+                  <span>♀</span>
+                  Женский
                 </button>
               </div>
             )}
 
             {/* Выбор голоса — только для системного режима */}
-            {ttsEnabled && ttsMode === 'system' && (
+            {ttsMode === 'system' && (
               <div className="flex items-center gap-1">
                 <div className="relative">
                   <button
@@ -359,20 +382,13 @@ export function InputPanel({
               </div>
             )}
 
-            {/* Кнопка теста голоса — работает в любом режиме, доступна всегда */}
-            {ttsEnabled && (
-              <button
-                onClick={() => onTestVoice?.()}
-                disabled={isProcessing || (ttsMode === 'system' && !hasRussianVoice)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 transition-colors px-2 py-1 rounded-md hover:bg-muted"
-                title="Проверить голос"
-              >
-                <Volume2 className="w-3 h-3" />
-                <span className="hidden md:inline">Тест</span>
-              </button>
-            )}
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              {ttsMode === 'neural'
+                ? neuralVoice === 'male' ? 'Дмитрий' : 'Светлана'
+                : hasRussianVoice ? (selectedVoice?.name || 'Системный') : 'Не настроен'}
+            </span>
           </div>
-        </div>
+        )}
 
         {/* Предупреждение об отсутствии русского голоса — только для системного режима */}
         {ttsEnabled && ttsMode === 'system' && !hasRussianVoice && (
