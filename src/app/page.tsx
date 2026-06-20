@@ -185,53 +185,60 @@ export default function Home() {
   // 
   const playNeuralTTS = useCallback(
     (text: string) => {
-      if (!audioRef.current) {
-        console.error('[TTS-Neural] audioRef.current is null!');
-        return;
+      cancelTTS();
+
+      // Останавливаем предыдущее
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
       }
 
-      // Останавливаем предыдущее воспроизведение
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-
-      cancelTTS();
       setIsNeuralPlaying(true);
-
-      console.log(`[TTS-Neural] Fetching TTS for: "${text.slice(0, 50)}..."`);
+      console.log(`[TTS-Neural] Fetching: "${text.slice(0, 50)}..."`);
 
       fetch('/api/tts-wav?text=' + encodeURIComponent(text))
         .then((res) => {
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.blob();
         })
         .then((blob) => {
           console.log(`[TTS-Neural] Got audio: ${blob.size} bytes`);
           const url = URL.createObjectURL(blob);
-          if (audioRef.current) {
-            audioRef.current.src = url;
-            audioRef.current.volume = 1;
-            audioRef.current.onended = () => {
-              setIsNeuralPlaying(false);
-              URL.revokeObjectURL(url);
-              console.log('[TTS-Neural] Playback ended');
-            };
-            audioRef.current.onerror = () => {
-              setIsNeuralPlaying(false);
-              URL.revokeObjectURL(url);
-              console.error('[TTS-Neural] Audio playback error');
-            };
-            audioRef.current.play().then(() => {
-              console.log('[TTS-Neural] ▶ Playing OK — мужской голос Дмитрий');
-            }).catch((err) => {
-              console.error('[TTS-Neural] Play error:', err);
-              setIsNeuralPlaying(false);
-            });
+
+          // Используем audioRef если есть, иначе new Audio
+          const audio = audioRef.current || new Audio();
+          audio.src = url;
+          audio.volume = 1;
+          audio.muted = false;
+
+          audio.onended = () => {
+            setIsNeuralPlaying(false);
+            URL.revokeObjectURL(url);
+            console.log('[TTS-Neural] Playback ended');
+          };
+          audio.onerror = () => {
+            setIsNeuralPlaying(false);
+            URL.revokeObjectURL(url);
+            console.error('[TTS-Neural] Audio error');
+          };
+
+          const playPromise = audio.play();
+          if (playPromise) {
+            playPromise
+              .then(() => console.log('[TTS-Neural] ▶ Playing — мужской голос Дмитрий'))
+              .catch((err) => {
+                console.warn('[TTS-Neural] play() failed:', err?.name, err?.message);
+                // Retry через 200мс
+                setTimeout(() => {
+                  audio.play()
+                    .then(() => console.log('[TTS-Neural] ▶ Retry OK'))
+                    .catch(() => setIsNeuralPlaying(false));
+                }, 200);
+              });
           }
         })
         .catch((err) => {
-          console.error('[TTS-Neural] Fetch error:', err);
+          console.error('[TTS-Neural] Error:', err);
           setIsNeuralPlaying(false);
         });
     },
