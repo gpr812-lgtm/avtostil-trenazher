@@ -48,8 +48,25 @@ export default function Home() {
   const [isNeuralPlaying, setIsNeuralPlaying] = useState(false);
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const [mobileTab, setMobileTab] = useState<'customer' | 'call' | 'review'>('customer');
+  const [callDuration, setCallDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
+
+  // Форматирование длительности звонка
+  const formatDuration = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Таймер звонка
+  useEffect(() => {
+    if (!isCallActive) { setCallDuration(0); return; }
+    const timer = setInterval(() => {
+      setCallDuration(Math.floor((Date.now() - callStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isCallActive]);
 
   // Разблокируем audio при первом взаимодействии пользователя со страницей.
   // Это нужно из-за autoplay policy — без этого audio.play() будет молча падать
