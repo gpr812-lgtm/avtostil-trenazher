@@ -275,10 +275,10 @@ export function InputPanel({
             )}
 
             {/* Выбор мужской/женский — только для нейронного режима */}
-            {ttsMode === 'neural' && onNeuralVoiceChange && (
+            {ttsMode === 'neural' && (
               <div className="flex items-center gap-0.5 bg-card rounded-md p-0.5 border border-border">
                 <button
-                  onClick={() => onNeuralVoiceChange('male')}
+                  onClick={() => {}}
                   className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded transition-colors ${
                     neuralVoice === 'male'
                       ? 'bg-primary text-primary-foreground font-medium'
