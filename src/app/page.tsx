@@ -47,6 +47,7 @@ export default function Home() {
   const [neuralVoice, setNeuralVoice] = useState<'male'>('male');
   const [isNeuralPlaying, setIsNeuralPlaying] = useState(false);
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
+  const [mobileTab, setMobileTab] = useState<'customer' | 'call' | 'review'>('customer');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
 
@@ -429,6 +430,7 @@ export default function Home() {
     setIsCallActive(true);
     isCallActiveRef.current = true;
     callStartRef.current = Date.now();
+    setMobileTab('call'); // Переключаемся на вкладку "Звонок"
 
     setIsTyping(true);
 
@@ -713,6 +715,9 @@ export default function Home() {
     setIsProcessingVoice(false);
 
     stopTTS(); // Останавливаем любую озвучку клиента
+
+    // Сразу переключаемся на вкладку "Разбор" на мобильных
+    setMobileTab('review');
 
     // Запрос обратной связи
     if (messages.length > 0 && selectedScenario) {
@@ -1036,68 +1041,118 @@ export default function Home() {
         </div>
 
         {/* Мобильная версия центра */}
-        <div className="lg:hidden flex flex-col min-h-0 gap-2">
-          {selectedScenario && (
-            <Card className="p-2.5">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
-                  <span className="font-semibold text-sm text-accent-foreground">
-                    {selectedScenario.customerName.charAt(0)}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-xs">
-                    {selectedScenario.customerName}
+        {/* === МОБИЛЬНАЯ ВЕРСИЯ: 3 ВКЛАДКИ === */}
+        <div className="lg:hidden flex-1 flex flex-col min-h-0 gap-2 overflow-hidden">
+          <Tabs defaultValue="customer" className="flex-1 flex flex-col min-h-0" value={mobileTab} onValueChange={(v) => setMobileTab(v as any)}>
+            <TabsList className="grid grid-cols-3 w-full flex-shrink-0">
+              <TabsTrigger value="customer" className="text-xs">Клиент</TabsTrigger>
+              <TabsTrigger value="call" className="text-xs">Звонок</TabsTrigger>
+              <TabsTrigger value="review" className="text-xs">Разбор</TabsTrigger>
+            </TabsList>
+
+            {/* Вкладка: Клиент */}
+            <TabsContent value="customer" className="flex-1 mt-2 min-h-0 overflow-y-auto">
+              <Tabs defaultValue="scenarios">
+                <TabsList className="grid grid-cols-2 w-full">
+                  <TabsTrigger value="scenarios" className="text-xs">Клиенты ({scenarios.length})</TabsTrigger>
+                  <TabsTrigger value="catalog" className="text-xs">Авто</TabsTrigger>
+                </TabsList>
+                <TabsContent value="scenarios" className="mt-2">
+                  <ScenarioSelector
+                    selectedId={selectedScenario?.id}
+                    onSelect={handleSelectScenario}
+                    disabled={isCallActive}
+                  />
+                </TabsContent>
+                <TabsContent value="catalog" className="mt-2">
+                  <CarCatalog
+                    selectedCarId={selectedCar?.id}
+                    onSelectCar={setSelectedCar}
+                  />
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+
+            {/* Вкладка: Звонок */}
+            <TabsContent value="call" className="flex-1 mt-2 min-h-0 flex flex-col gap-2 overflow-hidden">
+              {selectedScenario && (
+                <Card className="p-2.5 flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
+                      <span className="font-semibold text-sm text-accent-foreground">
+                        {selectedScenario.customerName.charAt(0)}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-xs">{selectedScenario.customerName}</div>
+                      <p className="text-[10px] text-muted-foreground line-clamp-1">{selectedScenario.customerProfile}</p>
+                    </div>
+                    {isCallActive && (
+                      <span className="text-[10px] text-emerald-600 flex items-center gap-1 flex-shrink-0">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                        {formatDuration(callDuration)}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[10px] text-muted-foreground line-clamp-1">
-                    {selectedScenario.customerProfile}
-                  </p>
-                </div>
-                {isCallActive && (
-                  <span className="text-[10px] text-emerald-600 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                    На линии
-                  </span>
-                )}
+                </Card>
+              )}
+              <div className="flex-1 min-h-[200px]">
+                <Dialogue
+                  messages={messages}
+                  scenario={selectedScenario}
+                  isTyping={isTyping}
+                  isProcessingVoice={isProcessingVoice}
+                  isBotSpeaking={isBotSpeaking}
+                />
               </div>
-            </Card>
-          )}
+              <div className="flex-shrink-0">
+                <InputPanel
+                  onSendMessage={handleSendMessage}
+                  disabled={!isCallActive}
+                  isProcessing={isTyping}
+                  ttsEnabled={ttsEnabled}
+                  onToggleTts={() => setTtsEnabled(!ttsEnabled)}
+                  russianVoices={russianVoices}
+                  selectedVoice={selectedVoice}
+                  onSelectVoice={setSelectedVoice}
+                  hasRussianVoice={hasRussianVoice}
+                  onTestVoice={handleTestVoice}
+                  ttsMode={ttsMode}
+                  onTtsModeChange={setTtsMode}
+                  neuralVoice={neuralVoice}
+                  liveMode={{
+                    isActive: liveConversation.isActive,
+                    isListening: liveConversation.isListening,
+                    isBotSpeaking: isBotSpeaking,
+                    isProcessing: isTyping,
+                    currentTranscript: liveConversation.currentTranscript,
+                    onStart: handleLiveStart,
+                    onStop: handleLiveStop,
+                  }}
+                />
+              </div>
+            </TabsContent>
 
-          <div className="flex-1 min-h-[300px]">
-            <Dialogue
-              messages={messages}
-              scenario={selectedScenario}
-              isTyping={isTyping}
-              isProcessingVoice={isProcessingVoice}
-            isBotSpeaking={isBotSpeaking}
-            />
-          </div>
-
-          <InputPanel
-            onSendMessage={handleSendMessage}
-            disabled={!isCallActive}
-            isProcessing={isTyping}
-            ttsEnabled={ttsEnabled}
-            onToggleTts={() => setTtsEnabled(!ttsEnabled)}
-            russianVoices={russianVoices}
-            selectedVoice={selectedVoice}
-            onSelectVoice={setSelectedVoice}
-            hasRussianVoice={hasRussianVoice}
-            onTestVoice={handleTestVoice}
-            ttsMode={ttsMode}
-            onTtsModeChange={setTtsMode}
-            neuralVoice={neuralVoice}
-            
-            liveMode={{
-              isActive: liveConversation.isActive,
-              isListening: liveConversation.isListening,
-              isBotSpeaking: isBotSpeaking,
-              isProcessing: isTyping,
-              currentTranscript: liveConversation.currentTranscript,
-              onStart: handleLiveStart,
-              onStop: handleLiveStop,
-            }}
-          />
+            {/* Вкладка: Разбор */}
+            <TabsContent value="review" className="flex-1 mt-2 min-h-0 overflow-y-auto">
+              {feedback || isFeedbackLoading ? (
+                <FeedbackPanel
+                  feedback={feedback}
+                  isLoading={isFeedbackLoading}
+                  shopperFeedback={shopperFeedback}
+                  isShopperLoading={isShopperLoading}
+                  onShopperLoad={handleShopperLoad}
+                  messages={messages.map(m => ({ role: m.role, content: m.content }))}
+                  scenarioId={selectedScenario?.id}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                  <BarChart3 className="w-12 h-12 mb-3 opacity-30" />
+                  <p className="text-sm">Здесь будет разбор звонка и оценка после завершения разговора.</p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Правая колонка — обратная связь / справка */}
@@ -1197,21 +1252,6 @@ export default function Home() {
               scenarioId={selectedScenario?.id}
             />
           )}
-        </div>
-
-        {/* Мобильная версия правой колонки */}
-        <div className="lg:hidden">
-          {feedback || isFeedbackLoading ? (
-            <FeedbackPanel
-              feedback={feedback}
-              isLoading={isFeedbackLoading}
-              shopperFeedback={shopperFeedback}
-              isShopperLoading={isShopperLoading}
-              onShopperLoad={handleShopperLoad}
-              messages={messages.map(m => ({ role: m.role, content: m.content }))}
-              scenarioId={selectedScenario?.id}
-            />
-          ) : null}
         </div>
       </div>
 
