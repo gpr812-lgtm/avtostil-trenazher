@@ -186,128 +186,73 @@ export default function Home() {
   const playNeuralTTS = useCallback(
     (text: string) => {
       cancelTTS();
+      // Останавливаем предыдущее
+      try {
+        const w = window as any;
+        if (w.__ttsAudio) { w.__ttsAudio.pause(); w.__ttsAudio.src = ''; w.__ttsAudio = null; }
+      } catch {}
       setIsNeuralPlaying(true);
 
-      const voice = neuralVoiceRef.current;
-      const isMale = voice === 'male';
-      const voiceName = isMale ? 'Дмитрий (♂, Edge TTS)' : '';
+      console.log(`[TTS-Neural] Generating, text="${text.slice(0, 50)}..."`);
 
-      console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
+      // Используем GET URL + new Audio() — самый надёжный способ в Chrome
+      const url = '/api/tts-wav?text=' + encodeURIComponent(text);
 
-      const tryFetch = async (attempt: number): Promise<Blob> => {
-        console.log(`[TTS-Neural] Attempt ${attempt}/3`);
-        const res = await fetch('/api/tts-edge-npm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice }),
-        });
+      const audio = new Audio();
+      audio.preload = 'auto';
+      audio.volume = 1;
+      (window as any).__ttsAudio = audio;
 
-        if (!res.ok) {
-          const errText = await res.text().catch(() => '');
-          throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
-        }
-
-        const blob = await res.blob();
-        if (blob.size < 100) {
-          throw new Error(`Слишком маленький ответ: ${blob.size} bytes`);
-        }
-        return blob;
+      let settled = false;
+      const finish = (ok: boolean, reason?: string) => {
+        if (settled) return;
+        settled = true;
+        setIsNeuralPlaying(false);
+        try { audio.pause(); audio.src = ''; } catch {}
+        if ((window as any).__ttsAudio === audio) (window as any).__ttsAudio = null;
+        console.log(`[TTS-Neural] Playback finished: ok=${ok}` + (reason ? ` reason=${reason}` : ''));
       };
 
-      const fetchWithRetry = async (): Promise<Blob> => {
-        let lastError: Error | null = null;
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            return await tryFetch(attempt);
-          } catch (err) {
-            lastError = err instanceof Error ? err : new Error(String(err));
-            console.warn(`[TTS-Neural] Attempt ${attempt} failed:`, lastError.message);
-            if (attempt < 3) {
-              await new Promise((r) => setTimeout(r, 200 * attempt));
+      audio.onended = () => finish(true, 'ended');
+      audio.onerror = (e) => finish(false, 'error: ' + (audio.error ? 'code=' + audio.error.code : String(e)));
+      audio.onplaying = () => console.log('[TTS-Neural] ▶▶▶ onplaying — ЗВУК ЕСТЬ!');
+
+      audio.src = url;
+      const p = audio.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => console.log('[TTS-Neural] audio.play() resolved OK'))
+          .catch((err: any) => {
+            console.warn('[TTS-Neural] play() rejected:', err?.name, err?.message);
+            if (err?.name === 'NotAllowedError') {
+              // Autoplay blocked — retry after 300ms
+              setTimeout(() => {
+                audio.play().catch(() => finish(false, 'autoplay blocked twice'));
+              }, 300);
+            } else {
+              finish(false, 'play rejected: ' + (err?.message || String(err)));
             }
-          }
-        }
-        throw lastError;
-      };
-
-      fetchWithRetry()
-        .then((blob) => {
-          console.log(`[TTS-Neural] Got audio: ${blob.size} bytes, voice=${voiceName}`);
-          const url = URL.createObjectURL(blob);
-
-          const playAudio = (audio: HTMLAudioElement): Promise<void> => {
-            audio.src = url;
-            audio.onended = () => {
-              setIsNeuralPlaying(false);
-              URL.revokeObjectURL(url);
-            };
-            audio.onerror = () => {
-              setIsNeuralPlaying(false);
-              console.error('[TTS-Neural] Audio playback error');
-            };
-            return audio.play();
-          };
-
-          if (audioRef.current) {
-            playAudio(audioRef.current).catch((err) => {
-              console.warn('[TTS-Neural] audioRef.play failed, trying new Audio():', err.message);
-              const newAudio = new Audio(url);
-              newAudio.onended = () => {
-                setIsNeuralPlaying(false);
-                URL.revokeObjectURL(url);
-              };
-              newAudio.play().catch((err2) => {
-                console.error('[TTS-Neural] new Audio failed too:', err2);
-                setIsNeuralPlaying(false);
-                toast({
-                  title: 'Не удалось воспроизвести',
-                  description: 'Кликните куда-нибудь на странице и попробуйте снова.',
-                  variant: 'destructive',
-                });
-              });
-            });
-          } else {
-            const newAudio = new Audio(url);
-            newAudio.onended = () => {
-              setIsNeuralPlaying(false);
-              URL.revokeObjectURL(url);
-            };
-            newAudio.play().catch((err) => {
-              console.error('[TTS-Neural] Audio play failed:', err);
-              setIsNeuralPlaying(false);
-            });
-          }
-        })
-        .catch((err) => {
-          console.error('[TTS-Neural] All retries failed:', err.message);
-          setIsNeuralPlaying(false);
-          toast({
-            title: 'Нейронный голос недоступен',
-            description: `TTS не ответил. Попробуйте ещё раз.`,
-            variant: 'destructive',
           });
-        });
+      }
+      // Safety timeout
+      setTimeout(() => { if (!settled) finish(false, 'timeout 60s'); }, 60000);
     },
     [cancelTTS]
   );
 
-  // Универсальная функция озвучки: выбирает нейронный или системный
+  // Универсальная функция озвучки: всегда нейронный (Edge TTS)
   const playTTS = useCallback(
     (text: string) => {
-      if (ttsModeRef.current === 'neural') {
-        playNeuralTTS(text);
-      } else if (ttsSupported) {
-        // Системный голос
-        setTimeout(() => {
-          speakTTS(text);
-        }, 100);
-      }
+      playNeuralTTS(text);
     },
-    [ttsSupported, speakTTS, playNeuralTTS]
+    [playNeuralTTS]
   );
 
   // Остановить любую озвучку
   const stopTTS = useCallback(() => {
+    try {
+      const w = window as any;
+      if (w.__ttsAudio) { w.__ttsAudio.pause(); w.__ttsAudio.src = ''; w.__ttsAudio = null; }
+    } catch {}
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
