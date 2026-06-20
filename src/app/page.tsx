@@ -223,23 +223,19 @@ export default function Home() {
               console.error('[TTS-Neural] Audio playback error');
             };
             audioRef.current.play().then(() => {
-              console.log('[TTS-Neural] ▶ Playing OK');
+              console.log('[TTS-Neural] ▶ Playing OK — мужской голос Дмитрий');
             }).catch((err) => {
               console.error('[TTS-Neural] Play error:', err);
               setIsNeuralPlaying(false);
-              // Fallback на системный голос
-              speakTTS(text);
             });
           }
         })
         .catch((err) => {
           console.error('[TTS-Neural] Fetch error:', err);
           setIsNeuralPlaying(false);
-          // Fallback на системный голос
-          speakTTS(text);
         });
     },
-    [cancelTTS, speakTTS]
+    [cancelTTS]
   );
 
   // Универсальная функция озвучки: всегда нейронный (Edge TTS)

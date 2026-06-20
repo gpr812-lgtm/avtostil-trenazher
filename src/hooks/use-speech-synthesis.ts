@@ -55,8 +55,8 @@ export function useSpeechSynthesis(): UseSpeechSynthesisReturn {
       // 1. Предпочитаем локальные голоса (не сетевые)
       const local = ruVoices.filter((v) => v.localService);
       if (local.length > 0) {
-        // Из локальных — предпочитаем женские (Milena, Irina, Katya)
-        const preferredNames = ['milena', 'irina', 'katya', 'elena', 'yuri', 'pavel', 'maxim'];
+        // Из локальных — предпочитаем МУЖСКИЕ (Pavel, Yuri, Maxim, Dmitry)
+        const preferredNames = ['pavel', 'yuri', 'yuriy', 'maxim', 'dmitry', 'dmitrii', 'nikolay', 'alexandr', 'sergey', 'andrey', 'milena', 'irina', 'katya', 'elena'];
         for (const name of preferredNames) {
           const match = local.find((v) => v.name.toLowerCase().includes(name));
           if (match) return match;
