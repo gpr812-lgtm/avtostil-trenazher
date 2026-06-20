@@ -202,7 +202,7 @@ export default function Home() {
           // Ищем МУЖСКОЙ русский голос
           const voices = window.speechSynthesis.getVoices();
           const maleNames = ['pavel', 'yuri', 'yuriy', 'maxim', 'dmitry', 'dmitrii', 'nikolay', 'alexandr', 'sergey', 'andrey'];
-          let ruVoice = null;
+          let ruVoice: SpeechSynthesisVoice | null | undefined = null;
           for (const name of maleNames) {
             const match = voices.find(v => v.lang.toLowerCase().startsWith('ru') && v.name.toLowerCase().includes(name));
             if (match) { ruVoice = match; break; }
@@ -293,7 +293,7 @@ export default function Home() {
             u.pitch = 0.85;
             const voices = window.speechSynthesis.getVoices();
             const maleNames = ['pavel', 'yuri', 'yuriy', 'maxim', 'dmitry', 'dmitrii', 'nikolay', 'alexandr', 'sergey', 'andrey'];
-            let ruVoice = null;
+            let ruVoice: SpeechSynthesisVoice | null | undefined = null;
             for (const name of maleNames) {
               const match = voices.find(v => v.lang.toLowerCase().startsWith('ru') && v.name.toLowerCase().includes(name));
               if (match) { ruVoice = match; break; }
