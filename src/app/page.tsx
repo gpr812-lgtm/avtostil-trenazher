@@ -471,16 +471,6 @@ export default function Home() {
       if (ttsEnabled && fullText) {
         playTTS(fullText);
       }
-
-      // Автоматически запускаем микрофон для live-режима
-      setTimeout(() => {
-        try {
-          liveConversation.start();
-          console.log('[AutoLive] Microphone started after call');
-        } catch (e) {
-          console.warn('[AutoLive] Mic start failed:', e);
-        }
-      }, 1000);
     } catch (err) {
       console.error('Start call error:', err);
       toast({
@@ -492,7 +482,7 @@ export default function Home() {
       setIsCallActive(false);
       isCallActiveRef.current = false;
     }
-  }, [selectedScenario, ttsEnabled, playTTS, streamChat, liveConversation]);
+  }, [selectedScenario, ttsEnabled, playTTS, streamChat]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {
@@ -589,6 +579,29 @@ export default function Home() {
       });
     }
   }, [liveConversation.error]);
+
+  // === АВТОЗАПУСК МИКРОФОНА ===
+  // Запускаем микрофон когда звонок активен и бот НЕ говорит
+  const autoLiveStartedRef = useRef(false);
+  useEffect(() => {
+    // Звонок активен, бот не говорит, микрофон ещё не запущен
+    if (isCallActive && !isBotSpeaking && !isTyping && !autoLiveStartedRef.current) {
+      autoLiveStartedRef.current = true;
+      const t = setTimeout(() => {
+        try {
+          liveConversation.start();
+          console.log('[AutoLive] Microphone auto-started');
+        } catch (e) {
+          console.warn('[AutoLive] Mic start failed:', e);
+        }
+      }, 500);
+      return () => clearTimeout(t);
+    }
+    // Сбрасываем флаг когда звонок завершён
+    if (!isCallActive) {
+      autoLiveStartedRef.current = false;
+    }
+  }, [isCallActive, isBotSpeaking, isTyping, liveConversation]);
 
   // При активации live-режима — стартуем звонок, если ещё не активен
   const handleLiveStart = useCallback(async () => {
