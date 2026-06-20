@@ -31,8 +31,8 @@ interface InputPanelProps {
   liveMode?: LiveModeProps;
   ttsMode?: 'neural' | 'system';
   onTtsModeChange?: (mode: 'neural' | 'system') => void;
-  neuralVoice?: 'male' | 'female';
-  onNeuralVoiceChange?: (voice: 'male' | 'female') => void;
+  neuralVoice?: 'male';
+  
 }
 
 export function InputPanel({
@@ -289,18 +289,6 @@ export function InputPanel({
                   <span>♂</span>
                   Мужской
                 </button>
-                <button
-                  onClick={() => onNeuralVoiceChange('female')}
-                  className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded transition-colors ${
-                    neuralVoice === 'female'
-                      ? 'bg-primary text-primary-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                  title="Женский голос (Светлана)"
-                >
-                  <span>♀</span>
-                  Женский
-                </button>
               </div>
             )}
 
@@ -386,7 +374,7 @@ export function InputPanel({
               {ttsMode === 'neural' ? (
                 <>
                   <Sparkles className="w-3 h-3" />
-                  {neuralVoice === 'male' ? 'Айдар (♂)' : 'Ксения (♀)'}
+                  {Дмитрий (♂)}
                 </>
               ) : (
                 <>

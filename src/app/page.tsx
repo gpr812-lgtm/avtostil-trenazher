@@ -44,7 +44,7 @@ export default function Home() {
   const [isShopperLoading, setIsShopperLoading] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsMode, setTtsMode] = useState<'neural' | 'system'>('neural');
-  const [neuralVoice, setNeuralVoice] = useState<'male' | 'female'>('male');
+  const [neuralVoice, setNeuralVoice] = useState<'male'>('male');
   const [isNeuralPlaying, setIsNeuralPlaying] = useState(false);
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -116,7 +116,7 @@ export default function Home() {
   const selectedScenarioRef = useRef<Scenario | null>(null);
   const ttsEnabledRef = useRef(true);
   const ttsModeRef = useRef<'neural' | 'system'>('neural');
-  const neuralVoiceRef = useRef<'male' | 'female'>('male');
+  const neuralVoiceRef = useRef<'male'>('male');
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -180,9 +180,9 @@ export default function Home() {
     }
   }, [ttsSupported, hasRussianVoice, ttsEnabled]);
 
-  // Нейронный TTS — Silero (локально, без лимитов)
+  // Нейронный TTS — Edge TTS
   // ♂ Мужской: aidar (настоящий мужской русский голос)
-  // ♀ Женский: kseniya (женский русский голос)
+  // 
   const playNeuralTTS = useCallback(
     (text: string) => {
       cancelTTS();
@@ -190,7 +190,7 @@ export default function Home() {
 
       const voice = neuralVoiceRef.current;
       const isMale = voice === 'male';
-      const voiceName = isMale ? 'Айдар (♂, Silero)' : 'Ксения (♀, Silero)';
+      const voiceName = isMale ? 'Дмитрий (♂, Edge TTS)' : '';
 
       console.log(`[TTS-Neural] Generating with voice=${voice} (${voiceName}), text="${text.slice(0, 50)}..."`);
 
@@ -283,7 +283,7 @@ export default function Home() {
           setIsNeuralPlaying(false);
           toast({
             title: 'Нейронный голос недоступен',
-            description: `Silero TTS не ответил. Попробуйте ещё раз.`,
+            description: `TTS не ответил. Попробуйте ещё раз.`,
             variant: 'destructive',
           });
         });
@@ -333,7 +333,7 @@ export default function Home() {
       }).catch(() => {});
     }
     playTTS(
-      `Здравствуйте! Это тестовое сообщение. ${neuralVoiceRef.current === 'male' ? 'Меня зовут Максим, мужской голос.' : 'Меня зовут Татьяна, женский голос.'} Если вы слышите меня на русском языке, озвучка настроена правильно.`
+      `Здравствуйте! Это тестовое сообщение. ${Меня зовут Дмитрий, мужской голос.} Если вы слышите меня на русском языке, озвучка настроена правильно.`
     );
   }, [playTTS]);
 
@@ -773,10 +773,10 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-base font-bold leading-tight">
-                АвтоТренажёр
+                Автостиль
               </h1>
               <p className="text-[11px] text-muted-foreground leading-tight">
-                Тренировка телефонных продаж китайских авто
+                проект Тюрина М. В.
               </p>
             </div>
           </div>
@@ -1091,11 +1091,11 @@ export default function Home() {
                       <br />
                       <b>Нейро</b> (по умолчанию) — Microsoft Edge TTS, голоса
                       как у живого человека. Можно выбрать мужской (Дмитрий) или
-                      женский (Светлана).
+                      мужской (Дмитрий).
                       <br />
                       <b>ОС</b> — голоса из операционной системы (работает офлайн).
                       <br />
-                      Переключайте «Нейро/ОС» и «♂/♀» в панели ввода.
+                      Озвучка работает автоматически.
                       Нажмите «Тест», чтобы услышать, как звучит.
                     </span>
                   </li>
