@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
-import { StatusPanel } from "@/components/status-panel";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,21 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "АвтоТренажёр — Тренировка продаж китайских авто",
+  title: "Автостиль — проект Тюрина М. В.",
   description:
-    "Голосовой тренажёр для продавцов-консультантов автосалонов китайских автомобилей. Практика телефонных переговоров с виртуальным клиентом.",
-  keywords: [
-    "тренировка продаж",
-    "китайские авто",
-    "автосалон",
-    "продавец-консультант",
-    "Haval",
-    "Chery",
-    "Geely",
-    "Changan",
-    "Tank",
-  ],
-  authors: [{ name: "АвтоТренажёр" }],
+    "Голосовой тренажёр для продавцов-консультантов автосалонов китайских автомобилей.",
+  authors: [{ name: "Тюрин М. В." }],
 };
 
 export default function RootLayout({
@@ -44,7 +32,6 @@ export default function RootLayout({
       >
         {children}
         <Toaster />
-        <StatusPanel />
       </body>
     </html>
   );

@@ -196,7 +196,7 @@ export default function Home() {
 
       const tryFetch = async (attempt: number): Promise<Blob> => {
         console.log(`[TTS-Neural] Attempt ${attempt}/3`);
-        const res = await fetch('http://localhost:3000/api/tts-silero', {
+        const res = await fetch('/api/tts-edge-npm', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, voice }),
