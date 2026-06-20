@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>TTS Test</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font:16px system-ui;max-width:600px;margin:40px auto;padding:20px}
+button{padding:12px 24px;font-size:16px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;margin:5px}
+button:hover{background:#1d4ed8}
+pre{background:#1e293b;color:#e2e8f0;padding:12px;border-radius:8px;font:12px monospace;max-height:300px;overflow:auto}
+.ok{color:#16a34a;font-weight:bold}.err{color:#dc2626;font-weight:bold}
+</style>
+</head>
+<body>
+<h1>🔊 Тест голоса бота</h1>
+<p>Нажмите кнопку — должен звучать мужской голос Дмитрий.</p>
+<button onclick="test1()">▶ Тест через Web Audio API</button>
+<button onclick="test2()">▶ Тест через HTML5 Audio</button>
+<button onclick="test3()">▶ Тест через &lt;audio controls&gt;</button>
+<pre id="log"></pre>
+<audio id="player" controls style="width:100%;margin-top:10px"></audio>
+
+<script>
+const logEl = document.getElementById('log');
+function log(msg, cls) {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+log('Страница загружена. Нажмите кнопку.');
+
+async function test1() {
+  log('▶ Test 1: Web Audio API');
+  try {
+    const res = await fetch('/api/tts-wav?text=' + encodeURIComponent('Здравствуйте, меня зовут Дмитрий. Это тестовый голос.'));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    log('Got audio: ' + blob.size + ' bytes');
+
+    const arrayBuffer = await blob.arrayBuffer();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    log('AudioContext state: ' + ctx.state);
+    if (ctx.state === 'suspended') await ctx.resume();
+    log('AudioContext resumed: ' + ctx.state);
+
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    log('Decoded: ' + audioBuffer.duration.toFixed(2) + 's');
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.onended = () => log('▶▶▶ ВОСПРОИЗВЕДЕНИЕ ЗАВЕРШЕНО', 'ok');
+    source.start();
+    log('▶▶▶ source.start() вызван — звук должен быть!', 'ok');
+  } catch (e) {
+    log('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function test2() {
+  log('▶ Test 2: HTML5 Audio (new Audio)');
+  try {
+    const res = await fetch('/api/tts-wav?text=' + encodeURIComponent('Здравствуйте, это тест через HTML5 Audio.'));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    log('Got audio: ' + blob.size + ' bytes');
+
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onplaying = () => log('▶▶▶ onplaying — ЗВУК!', 'ok');
+    audio.onended = () => { log('Воспроизведение завершено', 'ok'); URL.revokeObjectURL(url); };
+    audio.onerror = (e) => log('Ошибка: ' + (audio.error ? 'code=' + audio.error.code : e), 'err');
+    await audio.play();
+    log('play() resolved');
+  } catch (e) {
+    log('Ошибка: ' + e.message, 'err');
+  }
+}
+
+function test3() {
+  log('▶ Test 3: <audio controls> — нажмите Play в плеере');
+  const player = document.getElementById('player');
+  player.src = '/api/tts-wav?text=' + encodeURIComponent('Здравствуйте, это тест через аудио плеер.');
+  log('src установлен — нажмите ▶ в плеере выше');
+}
+</script>
+</body>
+</html>
