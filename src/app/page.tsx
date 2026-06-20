@@ -603,37 +603,24 @@ export default function Home() {
   // Запускаем микрофон когда звонок активен и бот НЕ говорит
   const autoLiveStartedRef = useRef(false);
   useEffect(() => {
-    // Звонок активен, бот не говорит, не печатает — микрофон должен работать
     if (isCallActive && !isBotSpeaking && !isTyping) {
-      // Запускаем если ещё не запущен
-      if (!autoLiveStartedRef.current) {
-        autoLiveStartedRef.current = true;
-        const t = setTimeout(() => {
+      // Всегда пытаемся запустить микрофон когда бот замолчал
+      const t = setTimeout(() => {
+        if (isCallActive && !isBotSpeaking && !isTyping) {
           try {
-            liveConversation.start();
-            console.log('[AutoLive] Microphone auto-started');
+            if (!liveConversation.isActive) {
+              liveConversation.start();
+              console.log('[AutoLive] Microphone started (was not active)');
+            } else if (!liveConversation.isListening) {
+              liveConversation.start();
+              console.log('[AutoLive] Microphone re-started (was not listening)');
+            }
           } catch (e) {
             console.warn('[AutoLive] Mic start failed:', e);
           }
-        }, 500);
-        return () => clearTimeout(t);
-      }
-      // Если уже запущен но isListening=false — перезапускаем
-      if (autoLiveStartedRef.current && !liveConversation.isListening && liveConversation.isActive) {
-        const t = setTimeout(() => {
-          try {
-            liveConversation.start();
-            console.log('[AutoLive] Microphone re-started after bot finished');
-          } catch (e) {
-            console.warn('[AutoLive] Mic re-start failed:', e);
-          }
-        }, 300);
-        return () => clearTimeout(t);
-      }
-    }
-    // Сбрасываем флаг когда звонок завершён
-    if (!isCallActive) {
-      autoLiveStartedRef.current = false;
+        }
+      }, 500);
+      return () => clearTimeout(t);
     }
   }, [isCallActive, isBotSpeaking, isTyping, liveConversation]);
 
