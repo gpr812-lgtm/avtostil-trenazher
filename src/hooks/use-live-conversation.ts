@@ -73,7 +73,7 @@ export function useLiveConversation({
 
     const recognition = new SpeechRecognitionClass();
     recognition.lang = 'ru-RU';
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
