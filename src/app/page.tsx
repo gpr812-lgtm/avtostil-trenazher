@@ -186,13 +186,6 @@ export default function Home() {
   const playNeuralTTS = useCallback(
     (text: string) => {
       cancelTTS();
-
-      // Останавливаем предыдущее
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-
       setIsNeuralPlaying(true);
       console.log(`[TTS-Neural] Fetching: "${text.slice(0, 50)}..."`);
 
@@ -201,40 +194,60 @@ export default function Home() {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.blob();
         })
-        .then((blob) => {
+        .then(async (blob) => {
           console.log(`[TTS-Neural] Got audio: ${blob.size} bytes`);
-          const url = URL.createObjectURL(blob);
 
-          // Используем audioRef если есть, иначе new Audio
-          const audio = audioRef.current || new Audio();
-          audio.src = url;
-          audio.volume = 1;
-          audio.muted = false;
+          // === Web Audio API (приоритет) — переживает async fetch ===
+          try {
+            const arrayBuffer = await blob.arrayBuffer();
+            const w = window as any;
+            if (!w.__audioCtx) {
+              w.__audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
+            const audioCtx: AudioContext = w.__audioCtx;
+            if (audioCtx.state === 'suspended') {
+              await audioCtx.resume();
+            }
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-          audio.onended = () => {
-            setIsNeuralPlaying(false);
-            URL.revokeObjectURL(url);
-            console.log('[TTS-Neural] Playback ended');
-          };
-          audio.onerror = () => {
-            setIsNeuralPlaying(false);
-            URL.revokeObjectURL(url);
-            console.error('[TTS-Neural] Audio error');
-          };
+            // Останавливаем предыдущий source
+            if (w.__ttsSource) {
+              try { w.__ttsSource.stop(); } catch {}
+              try { w.__ttsSource.disconnect(); } catch {}
+            }
 
-          const playPromise = audio.play();
-          if (playPromise) {
-            playPromise
-              .then(() => console.log('[TTS-Neural] ▶ Playing — мужской голос Дмитрий'))
-              .catch((err) => {
-                console.warn('[TTS-Neural] play() failed:', err?.name, err?.message);
-                // Retry через 200мс
-                setTimeout(() => {
-                  audio.play()
-                    .then(() => console.log('[TTS-Neural] ▶ Retry OK'))
-                    .catch(() => setIsNeuralPlaying(false));
-                }, 200);
-              });
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+            w.__ttsSource = source;
+
+            await new Promise<void>((resolve) => {
+              source.onended = () => {
+                setIsNeuralPlaying(false);
+                try { source.disconnect(); } catch {}
+                if (w.__ttsSource === source) w.__ttsSource = null;
+                console.log('[TTS-Neural] ▶ Web Audio playback ended');
+                resolve();
+              };
+              try {
+                source.start();
+                console.log('[TTS-Neural] ▶ Web Audio playing — мужской голос Дмитрий');
+              } catch (e: any) {
+                console.warn('[TTS-Neural] source.start() failed:', e?.message);
+                setIsNeuralPlaying(false);
+                resolve();
+              }
+            });
+          } catch (webAudioErr) {
+            // === Fallback: HTML5 Audio ===
+            console.warn('[TTS-Neural] Web Audio failed, fallback to HTML5:', webAudioErr instanceof Error ? webAudioErr.message : webAudioErr);
+            const url = URL.createObjectURL(blob);
+            const audio = audioRef.current || new Audio();
+            audio.src = url;
+            audio.volume = 1;
+            audio.onended = () => { setIsNeuralPlaying(false); URL.revokeObjectURL(url); };
+            audio.onerror = () => { setIsNeuralPlaying(false); URL.revokeObjectURL(url); };
+            audio.play().catch(() => setIsNeuralPlaying(false));
           }
         })
         .catch((err) => {
@@ -255,10 +268,13 @@ export default function Home() {
 
   // Остановить любую озвучку
   const stopTTS = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
+    // Web Audio
+    try {
+      const w = window as any;
+      if (w.__ttsSource) { try { w.__ttsSource.stop(); } catch {} try { w.__ttsSource.disconnect(); } catch {} w.__ttsSource = null; }
+    } catch {}
+    // HTML5 Audio
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
     cancelTTS();
     setIsNeuralPlaying(false);
   }, [cancelTTS]);
