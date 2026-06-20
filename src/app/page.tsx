@@ -189,12 +189,34 @@ export default function Home() {
       setIsNeuralPlaying(true);
       console.log(`[TTS-Neural] Fetching: "${text.slice(0, 50)}..."`);
 
+      // Timeout — если TTS не ответил за 15 сек, fallback на SpeechSynthesis
+      const ttsTimeout = setTimeout(() => {
+        console.warn('[TTS-Neural] Timeout — fallback to SpeechSynthesis');
+        setIsNeuralPlaying(false);
+        // Fallback на системный голос
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = 'ru-RU';
+          u.rate = 0.95;
+          u.pitch = 0.9; // мужской
+          const voices = window.speechSynthesis.getVoices();
+          const ru = voices.find(v => v.lang.toLowerCase().startsWith('ru'));
+          if (ru) u.voice = ru;
+          u.onstart = () => setIsNeuralPlaying(true);
+          u.onend = () => setIsNeuralPlaying(false);
+          u.onerror = () => setIsNeuralPlaying(false);
+          window.speechSynthesis.speak(u);
+        }
+      }, 15000);
+
       fetch('/api/tts-wav?text=' + encodeURIComponent(text))
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.blob();
         })
         .then(async (blob) => {
+          clearTimeout(ttsTimeout);
           console.log(`[TTS-Neural] Got audio: ${blob.size} bytes`);
 
           // === Web Audio API (приоритет) — переживает async fetch ===
@@ -251,8 +273,25 @@ export default function Home() {
           }
         })
         .catch((err) => {
+          clearTimeout(ttsTimeout);
           console.error('[TTS-Neural] Error:', err);
           setIsNeuralPlaying(false);
+          // Fallback на системный голос
+          if ('speechSynthesis' in window) {
+            console.log('[TTS-Neural] Fallback to SpeechSynthesis');
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'ru-RU';
+            u.rate = 0.95;
+            u.pitch = 0.9;
+            const voices = window.speechSynthesis.getVoices();
+            const ru = voices.find(v => v.lang.toLowerCase().startsWith('ru'));
+            if (ru) u.voice = ru;
+            u.onstart = () => setIsNeuralPlaying(true);
+            u.onend = () => setIsNeuralPlaying(false);
+            u.onerror = () => setIsNeuralPlaying(false);
+            window.speechSynthesis.speak(u);
+          }
         });
     },
     [cancelTTS]
