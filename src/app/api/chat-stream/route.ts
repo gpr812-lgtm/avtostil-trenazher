@@ -48,12 +48,22 @@ export async function POST(req: NextRequest) {
     ];
 
     if (messages.length === 0) {
+      // Заменяем {CAR} и {PRICE} в openingMessage на реальные значения
+      let openingMsg = scenario.openingMessage;
+      if (selectedCar) {
+        const carName = `${selectedCar.brand} ${selectedCar.model}`;
+        const priceMln = (selectedCar.priceFrom / 1000000).toFixed(1).replace('.0', '');
+        openingMsg = openingMsg.replace(/\{CAR\}/g, carName).replace(/\{PRICE\}/g, priceMln);
+      } else {
+        openingMsg = openingMsg.replace(/\{CAR\}/g, 'ваш автомобиль').replace(/\{PRICE\}/g, 'два с половиной');
+      }
+
       const carHint = selectedCar
-        ? ` Клиент звонит по поводу ${selectedCar.brand} ${selectedCar.model}.`
+        ? ` Клиент звонит по поводу ${selectedCar.brand} ${selectedCar.model}. ВАЖНО: клиент звонит именно по этому автомобилю — спрашивай про НЕГО, называй его по имени.`
         : '';
       llmMessages.push({
         role: 'user',
-        content: `[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием. Начни с: "${scenario.openingMessage}"${carHint}]`,
+        content: `[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием. Начни с: "${openingMsg}"${carHint}]`,
       });
     } else {
       for (const msg of messages) {

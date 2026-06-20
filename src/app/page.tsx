@@ -471,6 +471,16 @@ export default function Home() {
       if (ttsEnabled && fullText) {
         playTTS(fullText);
       }
+
+      // Автоматически запускаем микрофон для live-режима
+      setTimeout(() => {
+        try {
+          liveConversation.start();
+          console.log('[AutoLive] Microphone started after call');
+        } catch (e) {
+          console.warn('[AutoLive] Mic start failed:', e);
+        }
+      }, 1000);
     } catch (err) {
       console.error('Start call error:', err);
       toast({
@@ -482,7 +492,7 @@ export default function Home() {
       setIsCallActive(false);
       isCallActiveRef.current = false;
     }
-  }, [selectedScenario, ttsEnabled, playTTS, streamChat]);
+  }, [selectedScenario, ttsEnabled, playTTS, streamChat, liveConversation]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {

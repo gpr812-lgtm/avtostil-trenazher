@@ -52,7 +52,7 @@ export function InputPanel({
   neuralVoice = 'male',
   
 }: InputPanelProps) {
-  const [mode, setMode] = useState<'text' | 'voice' | 'live'>('text');
+  const [mode, setMode] = useState<'text' | 'voice' | 'live'>('live');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
   const [text, setText] = useState('');
   const {
