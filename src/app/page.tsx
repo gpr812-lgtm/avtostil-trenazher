@@ -952,6 +952,7 @@ export default function Home() {
             scenario={selectedScenario}
             isTyping={isTyping}
             isProcessingVoice={isProcessingVoice}
+            isBotSpeaking={isBotSpeaking}
           />
 
           <InputPanel
@@ -1015,6 +1016,7 @@ export default function Home() {
               scenario={selectedScenario}
               isTyping={isTyping}
               isProcessingVoice={isProcessingVoice}
+            isBotSpeaking={isBotSpeaking}
             />
           </div>
 
