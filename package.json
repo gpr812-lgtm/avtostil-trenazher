@@ -11,7 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "postinstall": "pip3 install --break-system-packages edge-tts 2>/dev/null; echo 'postinstall done'"
+    "postinstall": "prisma generate && pip3 install --break-system-packages edge-tts >/dev/null 2>&1 || true"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
