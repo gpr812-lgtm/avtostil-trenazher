@@ -193,16 +193,23 @@ export default function Home() {
       const ttsTimeout = setTimeout(() => {
         console.warn('[TTS-Neural] Timeout — fallback to SpeechSynthesis');
         setIsNeuralPlaying(false);
-        // Fallback на системный голос
         if ('speechSynthesis' in window) {
           window.speechSynthesis.cancel();
           const u = new SpeechSynthesisUtterance(text);
           u.lang = 'ru-RU';
           u.rate = 0.95;
-          u.pitch = 0.9; // мужской
+          u.pitch = 0.85; // мужской тембр
+          // Ищем МУЖСКОЙ русский голос
           const voices = window.speechSynthesis.getVoices();
-          const ru = voices.find(v => v.lang.toLowerCase().startsWith('ru'));
-          if (ru) u.voice = ru;
+          const maleNames = ['pavel', 'yuri', 'yuriy', 'maxim', 'dmitry', 'dmitrii', 'nikolay', 'alexandr', 'sergey', 'andrey'];
+          let ruVoice = null;
+          for (const name of maleNames) {
+            const match = voices.find(v => v.lang.toLowerCase().startsWith('ru') && v.name.toLowerCase().includes(name));
+            if (match) { ruVoice = match; break; }
+          }
+          // Если мужской не нашли — берём любой русский
+          if (!ruVoice) ruVoice = voices.find(v => v.lang.toLowerCase().startsWith('ru'));
+          if (ruVoice) u.voice = ruVoice;
           u.onstart = () => setIsNeuralPlaying(true);
           u.onend = () => setIsNeuralPlaying(false);
           u.onerror = () => setIsNeuralPlaying(false);
@@ -276,17 +283,23 @@ export default function Home() {
           clearTimeout(ttsTimeout);
           console.error('[TTS-Neural] Error:', err);
           setIsNeuralPlaying(false);
-          // Fallback на системный голос
+          // Fallback на системный мужской голос
           if ('speechSynthesis' in window) {
-            console.log('[TTS-Neural] Fallback to SpeechSynthesis');
+            console.log('[TTS-Neural] Fallback to SpeechSynthesis (male)');
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
             u.lang = 'ru-RU';
             u.rate = 0.95;
-            u.pitch = 0.9;
+            u.pitch = 0.85;
             const voices = window.speechSynthesis.getVoices();
-            const ru = voices.find(v => v.lang.toLowerCase().startsWith('ru'));
-            if (ru) u.voice = ru;
+            const maleNames = ['pavel', 'yuri', 'yuriy', 'maxim', 'dmitry', 'dmitrii', 'nikolay', 'alexandr', 'sergey', 'andrey'];
+            let ruVoice = null;
+            for (const name of maleNames) {
+              const match = voices.find(v => v.lang.toLowerCase().startsWith('ru') && v.name.toLowerCase().includes(name));
+              if (match) { ruVoice = match; break; }
+            }
+            if (!ruVoice) ruVoice = voices.find(v => v.lang.toLowerCase().startsWith('ru'));
+            if (ruVoice) u.voice = ruVoice;
             u.onstart = () => setIsNeuralPlaying(true);
             u.onend = () => setIsNeuralPlaying(false);
             u.onerror = () => setIsNeuralPlaying(false);
