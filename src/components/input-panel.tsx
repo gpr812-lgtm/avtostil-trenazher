@@ -50,7 +50,7 @@ export function InputPanel({
   ttsMode = 'neural',
   onTtsModeChange,
   neuralVoice = 'male',
-  onNeuralVoiceChange,
+  
 }: InputPanelProps) {
   const [mode, setMode] = useState<'text' | 'voice' | 'live'>('text');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);

@@ -969,7 +969,7 @@ export default function Home() {
             ttsMode={ttsMode}
             onTtsModeChange={setTtsMode}
             neuralVoice={neuralVoice}
-            onNeuralVoiceChange={setNeuralVoice}
+            
             liveMode={{
               isActive: liveConversation.isActive,
               isListening: liveConversation.isListening,
@@ -1034,7 +1034,7 @@ export default function Home() {
             ttsMode={ttsMode}
             onTtsModeChange={setTtsMode}
             neuralVoice={neuralVoice}
-            onNeuralVoiceChange={setNeuralVoice}
+            
             liveMode={{
               isActive: liveConversation.isActive,
               isListening: liveConversation.isListening,
