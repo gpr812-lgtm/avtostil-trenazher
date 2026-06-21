@@ -64,22 +64,10 @@ if [ -d ".next/standalone" ]; then
     cp -r .next/standalone "$BUILD_DIR/next-service-dist/"
 fi
 
-# 复制 Next.js 静态文件
-if [ -d ".next/static" ]; then
-    echo "  - 复制 .next/static"
-    mkdir -p "$BUILD_DIR/next-service-dist/.next"
-    cp -r .next/static "$BUILD_DIR/next-service-dist/.next/"
-fi
-
-# Копировать .next/BUILD_ID и другие необходимые файлы
-if [ -f ".next/BUILD_ID" ]; then
-    echo "  - копировать .next/BUILD_ID"
-    mkdir -p "$BUILD_DIR/next-service-dist/.next"
-    cp .next/BUILD_ID "$BUILD_DIR/next-service-dist/.next/"
-fi
-if [ -f ".next/required-server-files.json" ]; then
-    echo "  - копировать .next/required-server-files.json"
-    cp .next/required-server-files.json "$BUILD_DIR/next-service-dist/.next/"
+# 复制 Next.js 静态文件和 манифесты
+if [ -d ".next" ]; then
+    echo "  - копировать .next (static + manifests + server)"
+    cp -r .next "$BUILD_DIR/next-service-dist/"
 fi
 
 # 复制 public 目录
