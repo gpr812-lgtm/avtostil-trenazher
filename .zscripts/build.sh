@@ -103,8 +103,12 @@ if [ -d "scripts" ]; then
 fi
 
 # Копировать .z-ai-config (нужен для ZAI SDK — chat, TTS, ASR)
-if [ -f ".z-ai-config" ]; then
-    echo "  - копировать .z-ai-config"
+# Берём из /etc/ т.к. в git его нет (содержит токен)
+if [ -f "/etc/.z-ai-config" ]; then
+    echo "  - копировать .z-ai-config из /etc/"
+    cp /etc/.z-ai-config "$BUILD_DIR/next-service-dist/"
+elif [ -f ".z-ai-config" ]; then
+    echo "  - копировать .z-ai-config из проекта"
     cp .z-ai-config "$BUILD_DIR/next-service-dist/"
 fi
 
