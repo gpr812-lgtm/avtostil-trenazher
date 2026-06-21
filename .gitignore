@@ -46,3 +46,4 @@ prisma/migrations/
 __pycache__/
 *.pyc
 skills/
+mini-services/

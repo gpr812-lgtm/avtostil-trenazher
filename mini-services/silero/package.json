@@ -1,8 +1,0 @@
-{
-  "name": "silero-service",
-  "version": "1.0.0",
-  "description": "Silero TTS server for Russian male/female voices",
-  "scripts": {
-    "dev": "python3 /home/z/my-project/scripts/silero_server.py"
-  }
-}
