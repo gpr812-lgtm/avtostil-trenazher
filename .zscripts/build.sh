@@ -58,17 +58,37 @@ fi
 # 将所有构建产物复制到临时构建目录
 echo "📦 收集构建产物到 $BUILD_DIR..."
 
-# 复制 Next.js standalone 构建输出
+# Создаём next-service-dist
+mkdir -p "$BUILD_DIR/next-service-dist"
+
+# 1. Копируем standalone (server.js, node_modules, package.json)
+# ВАЖНО: /* чтобы скопировать содержимое, а не саму папку
 if [ -d ".next/standalone" ]; then
-    echo "  - 复制 .next/standalone"
-    cp -r .next/standalone "$BUILD_DIR/next-service-dist/"
+    echo "  - копировать .next/standalone/*"
+    cp -r .next/standalone/* "$BUILD_DIR/next-service-dist/"
 fi
 
-# 复制 Next.js 静态文件和 манифесты
-if [ -d ".next" ]; then
-    echo "  - копировать .next (static + manifests + server)"
-    cp -r .next "$BUILD_DIR/next-service-dist/"
+# 2. Копируем .next/static (CSS, JS, шрифты)
+if [ -d ".next/static" ]; then
+    echo "  - копировать .next/static"
+    mkdir -p "$BUILD_DIR/next-service-dist/.next"
+    cp -r .next/static "$BUILD_DIR/next-service-dist/.next/"
 fi
+
+# 3. Копируем .next/server (server components, manifests)
+if [ -d ".next/server" ]; then
+    echo "  - копировать .next/server"
+    mkdir -p "$BUILD_DIR/next-service-dist/.next"
+    cp -r .next/server "$BUILD_DIR/next-service-dist/.next/"
+fi
+
+# 4. Копируем ВСЕ файлы из .next/ (манифесты, BUILD_ID и т.д.)
+mkdir -p "$BUILD_DIR/next-service-dist/.next"
+for f in .next/*; do
+    if [ -f "$f" ]; then
+        cp "$f" "$BUILD_DIR/next-service-dist/.next/"
+    fi
+done
 
 # 复制 public 目录
 if [ -d "public" ]; then
