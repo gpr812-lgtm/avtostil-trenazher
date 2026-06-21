@@ -47,3 +47,7 @@ __pycache__/
 *.pyc
 skills/
 mini-services/
+skills/
+download/
+upload/
+examples/
