@@ -77,6 +77,18 @@ if [ -d "public" ]; then
     cp -r public "$BUILD_DIR/next-service-dist/"
 fi
 
+# 复制 scripts 目录 (нужен для TTS — tts_with_stress.py)
+if [ -d "scripts" ]; then
+    echo "  - 复制 scripts"
+    cp -r scripts "$BUILD_DIR/next-service-dist/"
+fi
+
+# Копировать .z-ai-config (нужен для ZAI SDK — chat, TTS, ASR)
+if [ -f ".z-ai-config" ]; then
+    echo "  - копировать .z-ai-config"
+    cp .z-ai-config "$BUILD_DIR/next-service-dist/"
+fi
+
 # 将测试环境数据库复制到构建产物中，生产环境直接使用这份数据库
 if [ -f "./db/custom.db" ]; then
     echo "🗄️  复制测试环境数据库到构建产物..."
