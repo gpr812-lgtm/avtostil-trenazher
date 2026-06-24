@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+import { createChatCompletionStream, correctRussian } from '@/lib/zai-direct';
 import { buildSystemPrompt } from '@/lib/prompts';
 import { getScenarioById } from '@/data/scenarios';
 import { getCarById } from '@/data/cars';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -38,17 +39,38 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Находим выбранный автомобиль (если указан)
     const selectedCar = carId ? getCarById(carId) : undefined;
+    const systemPrompt = buildSystemPrompt(scenario, selectedCar, messages.length);
 
-    const systemPrompt = buildSystemPrompt(scenario, selectedCar);
+    // №4: System role вместо assistant — модель лучше слушается
+    // №3: Few-shot примеры правильных диалогов
+    const fewShotExamples = `
+## ПРИМЕРЫ ПРАВИЛЬНЫХ РЕПЛИК КЛИЕНТА (учись на них):
+Продавец: "Здравствуйте! Автосалон Автостиль, меня зовут Алексей. Чем могу помочь?"
+Клиент: "Здравствуйте. Я по поводу вашего Haval Jolion. Скажите, какая цена выходит?"
 
-    const llmMessages: Array<{ role: string; content: string }> = [
-      { role: 'assistant', content: systemPrompt },
+Продавец: "От двух миллионов пятидесяти тысяч. Вам для себя или для семьи?"
+Клиент: "Для семьи. А что с гарантией?"
+
+Продавец: "Гарантия пять лет или сто тысяч километров. Хотите тест-драйв?"
+Клиент: "Давайте. Можно на субботу?"
+
+Продавец: "Дорого. А скидки какие-то есть?"
+Клиент: "Ну не знаю. А если в кредит оформить?"
+
+## ПРИМЕРЫ НЕПРАВИЛЬНЫХ РЕПЛИК (это речь ПРОДАВЦА, НЕ говори так):
+❌ "У нас есть несколько комплектаций..."
+❌ "Могу предложить вам скидку..."
+❌ "Давайте я вас запишу на тест-драйв"
+❌ "Понимаю ваши сомнения. На все модели гарантия..."
+❌ "Какой автомобиль вас интересует?"
+`;
+
+    const llmMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt + fewShotExamples },
     ];
 
     if (messages.length === 0) {
-      // Заменяем {CAR} и {PRICE} в openingMessage на реальные значения
       let openingMsg = scenario.openingMessage;
       if (selectedCar) {
         const carName = `${selectedCar.brand} ${selectedCar.model}`;
@@ -57,13 +79,12 @@ export async function POST(req: NextRequest) {
       } else {
         openingMsg = openingMsg.replace(/\{CAR\}/g, 'ваш автомобиль').replace(/\{PRICE\}/g, 'два с половиной');
       }
-
       const carHint = selectedCar
-        ? ` Клиент звонит по поводу ${selectedCar.brand} ${selectedCar.model}. ВАЖНО: клиент звонит именно по этому автомобилю — спрашивай про НЕГО, называй его по имени.`
+        ? ` Клиент звонит по поводу ${selectedCar.brand} ${selectedCar.model}.`
         : '';
       llmMessages.push({
         role: 'user',
-        content: `[Начало звонка. Телефон звонит. Продавец берёт трубку. Сгенерируй свою первую реплику клиента в соответствии со сценарием. Начни с: "${openingMsg}"${carHint}]`,
+        content: `[Начало звонка. Сгенерируй первую реплику клиента. Начни с: "${openingMsg}"${carHint}]`,
       });
     } else {
       for (const msg of messages) {
@@ -74,101 +95,62 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const zai = await ZAI.create();
+    console.log('[chat-stream] Стриминг к OpenRouter...');
+    console.log('[chat-stream] Сообщений:', llmMessages.length, '| Сценарий:', scenario.id);
 
-    // Запрос со stream=true
-    const completion: any = await zai.chat.completions.create({
-      messages: llmMessages as any,
-      thinking: { type: 'disabled' },
-      stream: true,
+    // SSE-стрим — текст идёт по словам, пропуская reasoning
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let fullText = '';
+        let dialogueEnd = false;
+        try {
+          const aiStream = createChatCompletionStream(llmMessages);
+          for await (const delta of aiStream) {
+            fullText += delta;
+            // Отправляем каждый content-токен сразу (без коррекции — для скорости)
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta })}\n\n`));
+          }
+
+          if (fullText.includes('[[DIALOGUE_END]]')) {
+            dialogueEnd = true;
+          }
+          let cleanText = fullText.replace('[[DIALOGUE_END]]', '').trim();
+
+          // №1: Постобработка — исправление русского языка
+          console.log('[chat-stream] Коррекция русского...');
+          const correctedText = await correctRussian(cleanText);
+          if (correctedText !== cleanText) {
+            console.log('[chat-stream] ✓ Текст исправлен');
+            cleanText = correctedText;
+          }
+
+          // Отправляем финальный исправленный текст
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, fullText: cleanText, dialogueEnd })}\n\n`));
+          controller.close();
+          console.log('[chat-stream] ✓ Стрим завершён, длина:', cleanText.length);
+        } catch (err) {
+          console.error('[chat-stream] ✗ Ошибка:', err instanceof Error ? err.message : err);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : 'Stream error' })}\n\n`));
+          controller.close();
+        }
+      },
     });
 
-    // SDK возвращает raw SSE-строку — собираем её в одну строку
-    let rawSSE = '';
-    if (completion && typeof completion[Symbol.asyncIterator] === 'function') {
-      for await (const chunk of completion) {
-        const text =
-          typeof chunk === 'string'
-            ? chunk
-            : Buffer.isBuffer(chunk)
-              ? chunk.toString('utf-8')
-              : chunk instanceof Uint8Array
-                ? new TextDecoder().decode(chunk)
-                : JSON.stringify(chunk);
-        rawSSE += text;
-      }
-    } else if (typeof completion === 'string') {
-      rawSSE = completion;
-    } else {
-      // Если это уже объект с choices — берём контент напрямую
-      const content = completion?.choices?.[0]?.message?.content || '';
-      rawSSE = `data: {"choices":[{"delta":{"content":${JSON.stringify(content)}}]}\n\ndata: [DONE]\n\n`;
-    }
-
-    // Парсим SSE: ищем все "data: {...}" и достаём delta.content
-    const deltas: string[] = [];
-    const lines = rawSSE.split('\n');
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const dataStr = line.slice(6).trim();
-        if (dataStr === '[DONE]' || !dataStr) continue;
-        try {
-          const data = JSON.parse(dataStr);
-          const delta = data?.choices?.[0]?.delta?.content;
-          if (delta) deltas.push(delta);
-        } catch {
-          // Игнорируем битые строки
-        }
-      }
-    }
-
-    const fullText = deltas.join('').replace('[[DIALOGUE_END]]', '').trim();
-    const dialogueEnd = deltas.join('').includes('[[DIALOGUE_END]]');
-
-    // Возвращаем как обычный JSON (без реального стриминга)
-    // Но добавим streaming-friendly хедер, чтобы клиент мог читать по частям
-    return new Response(
-      JSON.stringify({
-        response: fullText,
-        dialogueEnd,
-        // Имитация streaming: вернём массив частей для клиентского "печатающего" эффекта
-        chunks: splitIntoChunks(fullText, 5),
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
   } catch (error) {
-    console.error('Chat Stream API Error:', error);
+    console.error('[chat-stream] Ошибка:', error instanceof Error ? error.message : error);
     return new Response(
-      JSON.stringify({
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Ошибка при обработке сообщения',
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Ошибка' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
-}
-
-// Разбиваем текст на мелкие куски для имитации печати
-function splitIntoChunks(text: string, chunkSize: number): string[] {
-  const chunks: string[] = [];
-  const words = text.split(' ');
-  let current = '';
-  for (const word of words) {
-    if ((current + ' ' + word).length > chunkSize) {
-      if (current) chunks.push(current + ' ');
-      current = word;
-    } else {
-      current = current ? current + ' ' + word : word;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks;
 }
