@@ -13,6 +13,8 @@ import {
   Sparkles,
   RotateCcw,
   Info,
+  Lightbulb,
+  GraduationCap,
 } from 'lucide-react';
 import { scenarios, Scenario } from '@/data/scenarios';
 import { CarModel } from '@/data/cars';
@@ -25,6 +27,14 @@ import { ShopperFeedback } from '@/lib/shopper';
 import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
 import { useLiveConversation } from '@/hooks/use-live-conversation';
 import { toast } from '@/hooks/use-toast';
+import { SoundEffects } from '@/components/sound-effects';
+import { SellerTips } from '@/components/seller-tips';
+import { HistoryPanel, saveTrainingRecord } from '@/components/training-history';
+import { IdealReply } from '@/components/ideal-reply';
+import { StageIndicator } from '@/components/stage-indicator';
+import { markScenarioCompleted } from '@/components/scenario-progress';
+import { CoachMode } from '@/components/coach-mode';
+import { FeedbackTimeline } from '@/components/feedback-timeline';
 
 interface DialogueMessage {
   role: 'user' | 'assistant';
@@ -49,6 +59,9 @@ export default function Home() {
   const [leftTab, setLeftTab] = useState<'scenarios' | 'catalog'>('scenarios');
   const [mobileTab, setMobileTab] = useState<'customer' | 'call' | 'review'>('customer');
   const [callDuration, setCallDuration] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
+  const [tipsEnabled, setTipsEnabled] = useState(true);
+  const [coachEnabled, setCoachEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callStartRef = useRef<number>(0);
 
@@ -389,25 +402,47 @@ export default function Home() {
         throw new Error(err.error || 'Ошибка чата');
       }
 
-      const data = await res.json();
-
-      if (data.error) {
-        throw new Error(data.error);
+      if (!res.body) {
+        throw new Error('Нет тела ответа от сервера');
       }
 
-      const fullText: string = data.response || '';
-      const dialogueEnd: boolean = data.dialogueEnd || false;
-      const chunks: string[] = data.chunks || [fullText];
+      // Читаем SSE-стрим
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullText = '';
+      let dialogueEnd = false;
 
-      // Имитация streaming — выводим по слову с задержкой
-      // Это даёт эффект "печатающего" клиента
-      for (const chunk of chunks) {
-        onDelta(chunk);
-        // Небольшая задержка между словами — печатающий эффект
-        await new Promise((r) => setTimeout(r, 30));
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.slice(6).trim();
+          if (!dataStr || dataStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.delta) {
+              fullText += data.delta;
+              onDelta(fullText);
+            } else if (data.done) {
+              fullText = data.fullText || fullText;
+              dialogueEnd = data.dialogueEnd || false;
+            } else if (data.error) {
+              throw new Error(data.error);
+            }
+          } catch (e) {
+            // Игнорируем битые строки
+          }
+        }
       }
 
-      console.log(`[Stream] Total time: ${Date.now() - startTime}ms, chunks: ${chunks.length}`);
+      console.log(`[Stream] Total time: ${Date.now() - startTime}ms, length: ${fullText.length}`);
 
       return { fullText, dialogueEnd };
     },
@@ -542,24 +577,17 @@ export default function Home() {
           scenario.id,
           dialogueHistory,
           (delta) => {
+            // delta = ПОЛНЫЙ накопленный текст, заменяем содержимое
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === clientMessageId
-                  ? { ...m, content: m.content + delta }
-                  : m
+                m.id === clientMessageId ? { ...m, content: delta } : m
               )
             );
           }
         );
 
-        // Финальное обновление
         const finalClientMessage = { ...clientMessage, content: fullText };
         messagesRef.current = [...newMessages, finalClientMessage];
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === clientMessageId ? finalClientMessage : m
-          )
-        );
         setIsTyping(false);
 
         // Озвучка реплики клиента
@@ -747,6 +775,24 @@ export default function Home() {
 
         const data = await res.json();
         setFeedback(data.feedback);
+
+        // Сохраняем в историю и отмечаем сценарий пройденным
+        if (data.feedback) {
+          const carName = selectedCar ? `${selectedCar.brand} ${selectedCar.model}` : 'Не выбрано';
+          const score = data.feedback.totalScore || 0;
+          saveTrainingRecord({
+            id: crypto.randomUUID(),
+            date: Date.now(),
+            scenarioTitle: selectedScenario.title,
+            customerName: selectedScenario.customerName,
+            carName,
+            totalScore: score,
+            duration: callDuration,
+            outcome: data.feedback.outcome || 'no_close',
+            summary: data.feedback.summary || '',
+          });
+          markScenarioCompleted(selectedScenario.id, score);
+        }
       } catch (err) {
         console.error('Feedback error:', err);
         toast({
@@ -825,10 +871,10 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-background via-background to-accent/10">
+    <div className="h-dvh flex flex-col bg-gradient-to-br from-background via-background to-accent/10 overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {/* Шапка */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm">
-        <div className="px-4 py-2.5 flex items-center justify-between">
+      <header className="border-b border-border bg-card/80 backdrop-blur-sm flex-shrink-0">
+        <div className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
               <Car className="w-5 h-5 text-primary-foreground" />
@@ -849,6 +895,25 @@ export default function Home() {
                 {selectedScenario.title}
               </Badge>
             )}
+            {/* Тумблеры: подсказки и коуч */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-muted/50 rounded-lg">
+              <button
+                onClick={() => setTipsEnabled(p => !p)}
+                className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors ${tipsEnabled ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-muted-foreground'}`}
+                title="Подсказки продавцу"
+              >
+                <Lightbulb className="w-3 h-3" />
+                <span className="hidden md:inline">Подсказки</span>
+              </button>
+              <button
+                onClick={() => setCoachEnabled(p => !p)}
+                className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors ${coachEnabled ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'text-muted-foreground'}`}
+                title="Режим коуча"
+              >
+                <GraduationCap className="w-3 h-3" />
+                <span className="hidden md:inline">Коуч</span>
+              </button>
+            </div>
             {isCallActive ? (
               <>
                 <Button
@@ -886,15 +951,15 @@ export default function Home() {
       </header>
 
       {/* Основная сетка */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr_320px] gap-3 p-3 min-h-0 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[260px_1fr_300px] gap-2 sm:gap-3 p-2 sm:p-3 min-h-0 overflow-hidden">
         {/* Левая колонка — сценарии и каталог */}
-        <div className="hidden lg:flex flex-col min-h-0">
+        <div className="hidden lg:flex flex-col min-h-0 overflow-hidden border border-border rounded-lg bg-card">
           <Tabs
             value={leftTab}
             onValueChange={(v) => setLeftTab(v as 'scenarios' | 'catalog')}
             className="flex-1 flex flex-col min-h-0"
           >
-            <TabsList className="grid grid-cols-2 w-full">
+            <TabsList className="grid grid-cols-2 w-full flex-shrink-0 rounded-none border-b border-border">
               <TabsTrigger value="scenarios" className="text-xs gap-1">
                 <Sparkles className="w-3 h-3" />
                 Клиенты
@@ -906,7 +971,7 @@ export default function Home() {
             </TabsList>
             <TabsContent
               value="scenarios"
-              className="flex-1 mt-2 min-h-0 overflow-hidden"
+              className="flex-1 mt-0 min-h-0 overflow-hidden"
             >
               <ScenarioSelector
                 selectedId={selectedScenario?.id}
@@ -916,7 +981,7 @@ export default function Home() {
             </TabsContent>
             <TabsContent
               value="catalog"
-              className="flex-1 mt-2 min-h-0 overflow-hidden"
+              className="flex-1 mt-0 min-h-0 overflow-hidden"
             >
               <CarCatalog
                 selectedCarId={selectedCar?.id}
@@ -1046,29 +1111,29 @@ export default function Home() {
 
         {/* Мобильная версия центра */}
         {/* === МОБИЛЬНАЯ ВЕРСИЯ: 3 ВКЛАДКИ === */}
-        <div className="lg:hidden flex-1 flex flex-col min-h-0 gap-2 overflow-hidden">
+        <div className="lg:hidden flex-1 flex flex-col min-h-0 gap-1 overflow-hidden">
           <Tabs defaultValue="customer" className="flex-1 flex flex-col min-h-0" value={mobileTab} onValueChange={(v) => setMobileTab(v as any)}>
-            <TabsList className="grid grid-cols-3 w-full flex-shrink-0">
-              <TabsTrigger value="customer" className="text-xs">Клиент</TabsTrigger>
-              <TabsTrigger value="call" className="text-xs">Звонок</TabsTrigger>
-              <TabsTrigger value="review" className="text-xs">Разбор</TabsTrigger>
+            <TabsList className="grid grid-cols-3 w-full flex-shrink-0 h-9">
+              <TabsTrigger value="customer" className="text-[11px] sm:text-xs px-1">Клиент</TabsTrigger>
+              <TabsTrigger value="call" className="text-[11px] sm:text-xs px-1">Звонок</TabsTrigger>
+              <TabsTrigger value="review" className="text-[11px] sm:text-xs px-1">Разбор</TabsTrigger>
             </TabsList>
 
-            {/* Вкладка: Клиент */}
-            <TabsContent value="customer" className="flex-1 mt-2 min-h-0 overflow-y-auto">
+            {/* Вкладка: Клиент — с прокруткой */}
+            <TabsContent value="customer" className="flex-1 mt-1 min-h-0 overflow-y-auto overflow-x-hidden">
               <Tabs defaultValue="scenarios">
-                <TabsList className="grid grid-cols-2 w-full">
+                <TabsList className="grid grid-cols-2 w-full sticky top-0 z-10 bg-background">
                   <TabsTrigger value="scenarios" className="text-xs">Клиенты ({scenarios.length})</TabsTrigger>
                   <TabsTrigger value="catalog" className="text-xs">Авто</TabsTrigger>
                 </TabsList>
-                <TabsContent value="scenarios" className="mt-2">
+                <TabsContent value="scenarios" className="mt-1">
                   <ScenarioSelector
                     selectedId={selectedScenario?.id}
                     onSelect={handleSelectScenario}
                     disabled={isCallActive}
                   />
                 </TabsContent>
-                <TabsContent value="catalog" className="mt-2">
+                <TabsContent value="catalog" className="mt-1">
                   <CarCatalog
                     selectedCarId={selectedCar?.id}
                     onSelectCar={setSelectedCar}
@@ -1077,18 +1142,23 @@ export default function Home() {
               </Tabs>
             </TabsContent>
 
-            {/* Вкладка: Звонок */}
-            <TabsContent value="call" className="flex-1 mt-2 min-h-0 flex flex-col gap-2 overflow-hidden">
+            {/* Вкладка: Звонок — чат занимает максимум места */}
+            <TabsContent value="call" className="flex-1 mt-1 min-h-0 flex flex-col gap-1 overflow-hidden">
+              {/* Индикатор этапов разговора */}
+              <StageIndicator
+                messages={messages.map(m => ({ role: m.role, content: m.content }))}
+                isCallActive={isCallActive}
+              />
               {selectedScenario && (
-                <Card className="p-2.5 flex-shrink-0">
+                <Card className="p-2 flex-shrink-0">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
-                      <span className="font-semibold text-sm text-accent-foreground">
+                    <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
+                      <span className="font-semibold text-xs text-accent-foreground">
                         {selectedScenario.customerName.charAt(0)}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-xs">{selectedScenario.customerName}</div>
+                      <div className="font-semibold text-xs truncate">{selectedScenario.customerName}</div>
                       <p className="text-[10px] text-muted-foreground line-clamp-1">{selectedScenario.customerProfile}</p>
                     </div>
                     {isCallActive && (
@@ -1100,7 +1170,8 @@ export default function Home() {
                   </div>
                 </Card>
               )}
-              <div className="flex-1 min-h-[200px]">
+              {/* Чат — flex-1 чтобы занять всё доступное место */}
+              <div className="flex-1 min-h-0">
                 <Dialogue
                   messages={messages}
                   scenario={selectedScenario}
@@ -1109,6 +1180,7 @@ export default function Home() {
                   isBotSpeaking={isBotSpeaking}
                 />
               </div>
+              {/* Панель ввода — внизу */}
               <div className="flex-shrink-0">
                 <InputPanel
                   onSendMessage={handleSendMessage}
@@ -1137,18 +1209,30 @@ export default function Home() {
               </div>
             </TabsContent>
 
-            {/* Вкладка: Разбор */}
-            <TabsContent value="review" className="flex-1 mt-2 min-h-0 overflow-y-auto">
+            {/* Вкладка: Разбор — с прокруткой */}
+            <TabsContent value="review" className="flex-1 mt-1 min-h-0 overflow-y-auto overflow-x-hidden">
               {feedback || isFeedbackLoading ? (
-                <FeedbackPanel
-                  feedback={feedback}
-                  isLoading={isFeedbackLoading}
-                  shopperFeedback={shopperFeedback}
-                  isShopperLoading={isShopperLoading}
-                  onShopperLoad={handleShopperLoad}
-                  messages={messages.map(m => ({ role: m.role, content: m.content }))}
-                  scenarioId={selectedScenario?.id}
-                />
+                <div className="space-y-3 pb-4">
+                  <FeedbackPanel
+                    feedback={feedback}
+                    isLoading={isFeedbackLoading}
+                    shopperFeedback={shopperFeedback}
+                    isShopperLoading={isShopperLoading}
+                    onShopperLoad={handleShopperLoad}
+                    messages={messages.map(m => ({ role: m.role, content: m.content }))}
+                    scenarioId={selectedScenario?.id}
+                  />
+                  {/* Таймлайн обратной связи */}
+                  {feedback && !isFeedbackLoading && (
+                    <FeedbackTimeline
+                      messages={messages.map(m => ({ role: m.role, content: m.content }))}
+                      scenarioId={selectedScenario?.id || ''}
+                      totalScore={feedback.totalScore || 0}
+                      summary={feedback.summary || ''}
+                      outcome={feedback.outcome || ''}
+                    />
+                  )}
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                   <BarChart3 className="w-12 h-12 mb-3 opacity-30" />
@@ -1199,28 +1283,6 @@ export default function Home() {
                   <li className="flex gap-2">
                     <span className="font-semibold text-primary">4.</span>
                     <span>
-                      Озвучка реплик клиента — на русском. Два режима:
-                      <br />
-                      <b>Нейро</b> (по умолчанию) — Microsoft Edge TTS, голоса
-                      как у живого человека. Можно выбрать мужской (Дмитрий) или
-                      мужской (Дмитрий).
-                      <br />
-                      <b>ОС</b> — голоса из операционной системы (работает офлайн).
-                      <br />
-                      Озвучка работает автоматически.
-                      Нажмите «Тест», чтобы услышать, как звучит.
-                    </span>
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-semibold text-primary">5.</span>
-                    <span>
-                      Используйте <b>каталог авто</b> слева — там модели, цены,
-                      характеристики китайских брендов.
-                    </span>
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-semibold text-primary">6.</span>
-                    <span>
                       Когда закончите разговор — нажмите <b>«Завершить звонок»</b>,
                       и справа появится <b>разбор по 8 критериям</b>.
                     </span>
@@ -1232,20 +1294,10 @@ export default function Home() {
                     Цель — провести звонок так, чтобы записать клиента на
                     тест-драйв или визит в салон.
                   </p>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
-                    <b>Важно:</b> для голосового режима нужен Chrome, Edge или
-                    Yandex.Browser с доступом к микрофону.
-                  </p>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
-                    <b>Озвучка клиента:</b> используйте кнопку «Тест» рядом с
-                    выбором голоса, чтобы убедиться, что звучит по-русски.
-                    Если русских голосов нет — установите их в настройках ОС
-                    (Windows: Параметры → Речь).
-                  </p>
                 </div>
               </div>
             </Card>
-          ) : (
+          ) : feedback || isFeedbackLoading ? (
             <FeedbackPanel
               feedback={feedback}
               isLoading={isFeedbackLoading}
@@ -1255,11 +1307,65 @@ export default function Home() {
               messages={messages.map(m => ({ role: m.role, content: m.content }))}
               scenarioId={selectedScenario?.id}
             />
+          ) : (
+            <FeedbackPanel
+              feedback={null}
+              isLoading={false}
+              shopperFeedback={null}
+              isShopperLoading={false}
+              onShopperLoad={handleShopperLoad}
+              messages={messages.map(m => ({ role: m.role, content: m.content }))}
+              scenarioId={selectedScenario?.id}
+            />
           )}
         </div>
       </div>
 
       <audio ref={audioRef} className="hidden" />
+
+      {/* Звуковые эффекты — звонок, фон, уведомления */}
+      <SoundEffects
+        isCallActive={isCallActive}
+        isBotSpeaking={isBotSpeaking}
+        hasNewMessage={messages.length > 0 && messages[messages.length - 1]?.role === 'assistant'}
+        callEnded={!isCallActive && messages.length > 0 && !!feedback}
+      />
+
+      {/* Подсказки продавцу — только если включены */}
+      {tipsEnabled && (
+        <SellerTips
+          messages={messages.map(m => ({ role: m.role, content: m.content }))}
+          isCallActive={isCallActive}
+          isBotSpeaking={isBotSpeaking || isTyping}
+        />
+      )}
+
+      {/* Идеальный ответ — показывает как надо было ответить */}
+      {isCallActive && messages.length >= 2 && (() => {
+        const lastClient = [...messages].reverse().find(m => m.role === 'assistant' && m.content);
+        const lastSeller = [...messages].reverse().find(m => m.role === 'user' && m.content);
+        if (!lastClient || !lastSeller) return null;
+        return (
+          <IdealReply
+            sellerMessage={lastSeller.content}
+            clientMessage={lastClient.content}
+            scenarioId={selectedScenario?.id || ''}
+            callActive={isCallActive}
+          />
+        );
+      })()}
+
+      {/* Коуч — останавливает диалог с советом — только если включён */}
+      {coachEnabled && (
+        <CoachMode
+          messages={messages.map(m => ({ role: m.role, content: m.content }))}
+          isCallActive={isCallActive}
+          onContinue={() => {}}
+        />
+      )}
+
+      {/* История тренировок */}
+      <HistoryPanel open={showHistory} onClose={() => setShowHistory(false)} />
     </div>
   );
 }
