@@ -96,48 +96,18 @@ export async function createChatCompletion(messages: ChatMessage[]): Promise<str
 }
 
 /**
- * Постобработка — исправление ошибок русского языка.
- * Отправляет ответ бота на корректировку тому же ИИ.
- */
-export async function correctRussian(text: string): Promise<string> {
-  if (!text || text.length < 10) return text;
-
-  try {
-    const corrected = await createChatCompletion([
-      {
-        role: 'system',
-        content: 'Ты редактор русского языка. Исправь грамматические ошибки, падежи, склонения, пунктуацию. НЕ меняй смысл. НЕ добавляй ничего. Верни ТОЛЬКО исправленный текст без объяснений.',
-      },
-      {
-        role: 'user',
-        content: `Исправь ошибки в этом тексте клиента автосалона. Сохрани стиль разговорной речи. Не добавляй ничего. Верни только исправленный текст:\n\n${text}`,
-      },
-    ]);
-
-    // Если корректор вернул что-то адекватное — используем
-    if (corrected && corrected.length > 5 && corrected.length < text.length * 2) {
-      return corrected.trim();
-    }
-  } catch (e) {
-    console.warn('[Corrector] failed, using original:', e instanceof Error ? e.message : e);
-  }
-
-  return text;
-}
-
-/**
- * Создать чат-комплишен со СТРИМИНГОМ (SSE).
- * Читает ТОЛЬКО content (пропускает reasoning токены).
- * Перебор моделей при 429.
+ * Стриминг с автоматическим fallback на не-стриминговый режим.
+ * Если стриминг не отдал content (только reasoning) — переключается на createChatCompletion.
  */
 export async function* createChatCompletionStream(messages: ChatMessage[]): AsyncGenerator<string, void, unknown> {
-  console.log('[OpenRouter] POST /chat/completions (stream), сообщений:', messages.length);
-
+  console.log('[OpenRouter] Стриминг...');
+  let totalChars = 0;
+  let gotContent = false;
   let lastError: Error | null = null;
 
   for (const model of MODELS) {
     try {
-      console.log('[OpenRouter] Пробуем модель (stream):', model);
+      console.log('[OpenRouter] Стрим модель:', model);
       const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: HEADERS,
@@ -146,42 +116,32 @@ export async function* createChatCompletionStream(messages: ChatMessage[]): Asyn
           messages,
           stream: true,
           max_tokens: 250,
-          temperature: 0.3, // минимальная случайность = грамотнее
+          temperature: 0.3,
           top_p: 0.85,
         }),
       });
 
-      console.log('[OpenRouter] HTTP статус:', response.status, 'для', model);
-
       if (response.status === 429) {
-        console.warn('[OpenRouter] 429 — пробуем следующую модель:', model);
-        lastError = new Error(`Модель ${model} занята (429)`);
+        console.warn('[OpenRouter] 429, следующая модель');
+        lastError = new Error(`429: ${model}`);
         continue;
       }
-
       if (!response.ok) {
         const text = await response.text();
-        console.error('[OpenRouter] HTTP error:', response.status, text.slice(0, 300));
-        lastError = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+        console.error('[OpenRouter] HTTP', response.status);
+        lastError = new Error(`HTTP ${response.status}`);
         continue;
       }
-
-      if (!response.body) {
-        lastError = new Error('No response body');
-        continue;
-      }
+      if (!response.body) { lastError = new Error('No body'); continue; }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let totalChars = 0;
-      let gotContent = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -193,34 +153,49 @@ export async function* createChatCompletionStream(messages: ChatMessage[]): Asyn
             const data = JSON.parse(dataStr);
             const delta = data?.choices?.[0]?.delta;
             if (delta) {
-              // Читаем ТОЛЬКО content, пропускаем reasoning
               const content = delta.content;
               if (content) {
                 totalChars += content.length;
                 gotContent = true;
                 yield content;
               }
-              // reasoning токены просто пропускаем
             }
-          } catch {
-            // Игнорируем битые строки
-          }
+          } catch {}
         }
       }
 
-      console.log('[OpenRouter] ✓ Стрим завершён для', model, '| content:', totalChars, 'символов');
+      console.log('[OpenRouter] Стрим завершён:', model, '| content:', totalChars);
 
-      if (gotContent) {
-        return; // Успешно — выходим
+      if (gotContent) return; // Успех
+
+      // Стриминг не дал content — fallback на не-стриминговый
+      console.warn('[OpenRouter] Нет content в стриме, fallback на не-стриминг:', model);
+      const fullText = await createChatCompletion(messages);
+      if (fullText) {
+        gotContent = true;
+        yield fullText;
+        return;
       }
 
-      // Если content не получили — пробуем следующую модель
-      console.warn('[OpenRouter] Нет content от', model, '— пробуем следующую');
       lastError = new Error('Нет content от ' + model);
     } catch (err) {
-      console.error('[OpenRouter] Ошибка с моделью', model, ':', err instanceof Error ? err.message : err);
+      console.error('[OpenRouter] Ошибка стрима', model, ':', err instanceof Error ? err.message : err);
       lastError = err instanceof Error ? err : new Error(String(err));
       continue;
+    }
+  }
+
+  // Последняя попытка — не-стриминговый режим
+  if (!gotContent) {
+    console.warn('[OpenRouter] Все стрим-модели не сработали, финальный fallback');
+    try {
+      const fullText = await createChatCompletion(messages);
+      if (fullText) {
+        yield fullText;
+        return;
+      }
+    } catch (e) {
+      console.error('[OpenRouter] Финальный fallback не удался:', e instanceof Error ? e.message : e);
     }
   }
 
