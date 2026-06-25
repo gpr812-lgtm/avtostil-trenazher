@@ -36,9 +36,16 @@ export interface ChatMessage {
 /**
  * Создать чат-комплишен (НЕ стриминг).
  * Автоматический fallback на другую модель при 429 ошибке.
+ * @param messages — список сообщений
+ * @param options — maxTokens (по умолч. 250), temperature (по умолч. 0.3)
  */
-export async function createChatCompletion(messages: ChatMessage[]): Promise<string> {
-  console.log('[OpenRouter] POST /chat/completions, сообщений:', messages.length);
+export async function createChatCompletion(
+  messages: ChatMessage[],
+  options?: { maxTokens?: number; temperature?: number },
+): Promise<string> {
+  const maxTokens = options?.maxTokens ?? 250;
+  const temperature = options?.temperature ?? 0.3;
+  console.log('[OpenRouter] POST /chat/completions, сообщений:', messages.length, '| maxTokens:', maxTokens);
 
   let lastError: Error | null = null;
 
@@ -52,9 +59,9 @@ export async function createChatCompletion(messages: ChatMessage[]): Promise<str
           model,
           messages,
           stream: false,
-          max_tokens: 250,  // короче = быстрее
-          temperature: 0.3, // минимальная случайность = грамотнее
-          top_p: 0.85,      // отсекаем маловероятные токены
+          max_tokens: maxTokens,
+          temperature,
+          top_p: 0.85,
         }),
       });
 

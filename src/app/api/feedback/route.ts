@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+import { createChatCompletion } from '@/lib/zai-direct';
 import { buildFeedbackPrompt } from '@/lib/prompts';
 import { getScenarioById } from '@/data/scenarios';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 90;
 
 interface FeedbackRequest {
   scenarioId: string;
@@ -31,23 +33,22 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildFeedbackPrompt(messages, scenario);
 
-    const zai = await ZAI.create();
+    console.log('[feedback] Запрос обратной связи. Сообщений:', messages.length, '| Сценарий:', scenario.id);
 
-    const completion = await zai.chat.completions.create({
-      messages: [
-        {
-          role: 'assistant',
-          content:
-            'Ты — опытный наставник по продажам. Отвечай СТРОГО в формате JSON, без markdown, без обёрток.',
-        },
-        { role: 'user', content: prompt },
-      ],
-      thinking: { type: 'disabled' },
-    });
+    // Используем OpenRouter (как и chat-stream) — не z-ai-web-dev-sdk
+    // Для feedback нужен большой лимит — JSON с 8 оценками + развёрнутые комментарии
+    const response = await createChatCompletion([
+      {
+        role: 'assistant',
+        content:
+          'Ты — опытный наставник по продажам. Отвечай СТРОГО в формате JSON, без markdown, без обёрток. Только валидный JSON.',
+      },
+      { role: 'user', content: prompt },
+    ], { maxTokens: 2000, temperature: 0.4 });
 
-    const response = completion.choices[0]?.message?.content || '';
+    console.log('[feedback] Получен ответ, длина:', response.length);
 
-    // Извлекаем JSON из ответа (на случай если модель обернёт в ```json)
+    // Извлекаем JSON из ответа
     let jsonText = response.trim();
     const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)```/);
     if (jsonMatch) {
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
     try {
       feedback = JSON.parse(jsonText);
     } catch (e) {
+      console.error('[feedback] Не удалось разобрать JSON:', jsonText.slice(0, 300));
       return NextResponse.json(
         {
           error: 'Не удалось разобрать ответ модели',
@@ -76,9 +78,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log('[feedback] ✓ Успешно. Total score:', feedback.totalScore);
     return NextResponse.json({ feedback });
   } catch (error) {
-    console.error('Feedback API Error:', error);
+    console.error('[feedback] Ошибка:', error instanceof Error ? error.message : error);
     return NextResponse.json(
       {
         error:
