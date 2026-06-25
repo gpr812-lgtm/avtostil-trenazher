@@ -6,7 +6,7 @@ import { getCarById } from '@/data/cars';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -821,7 +821,7 @@ export async function POST(req: NextRequest) {
             let attemptsUsed = 0;
             let success = false;
 
-            for (let attempt = 1; attempt <= 3; attempt++) {
+            for (let attempt = 1; attempt <= 2; attempt++) {
               console.log(`[chat-stream] Попытка перегенерации #${attempt} (${regenerateReason})`);
 
               // Специфичное напоминание — становится жёстче с попыткой
