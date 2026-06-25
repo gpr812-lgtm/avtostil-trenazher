@@ -82,20 +82,29 @@ function detectSellerQuestions(sellerText: string): SellerQuestion[] {
       /представьтесь/,
       /могу я узнать ваше имя/,
       /как мне к вам обращаться/,
+      /как к вам обрат/,
+      /ваше имя/,
     ]},
     { type: 'car_interest', patterns: [
-      /какой (автомобиль|машин[ау]) вас интересует/,
-      /какую (машину|модель|марку) вы (ищете|рассматриваете|хотите)/,
+      /какой (автомобиль|машин[ау]|авто)\s/,
+      /какой (автомобиль|машин[ау]) вас/,
+      /какую (машину|модель|марку) вы/,
+      /какую (машину|модель) (ищете|рассматриваете|хотите|вас интересует)/,
       /что вас интересует/,
       /что (ищете|хотите найти)/,
       /какой (авто|кар)\s/,
       /что за машина/,
+      /что за автомобиль/,
+      /какую марку/,
+      /какой бренд/,
+      /какой автомобиль вас интересует/,
     ]},
     { type: 'for_whom', patterns: [
-      /для (себя|семьи)/,
+      /для (себя|семьи|кого)/,
       /себе или (семье|семье)/,
       /кому машина/,
       /для кого/,
+      /семье или себе/,
     ]},
     { type: 'budget', patterns: [
       /какой бюджет/,
@@ -103,13 +112,20 @@ function detectSellerQuestions(sellerText: string): SellerQuestion[] {
       /сколько (вы )?готов[ыи] потратить/,
       /в каком (диапазоне|ценовом)/,
       /сумма покупки/,
+      /бюджет какой/,
+      /на сколько рассчитыва/,
+      /сколько планируете потрат/,
     ]},
     { type: 'trade_in', patterns: [
       /трейд[- ]?ин/,
       /старая машина/,
+      /старую машину/,
       /будете ли сдавать/,
       /есть ли что сдавать/,
       /в зачёт/,
+      /сдать стар/,
+      /что взамен/,
+      /обмен стар/,
     ]},
     { type: 'when_buy', patterns: [
       /когда планируете покупку/,
@@ -117,13 +133,40 @@ function detectSellerQuestions(sellerText: string): SellerQuestion[] {
       /когда (собираетесь|планируете)/,
       /сроки? покупк/,
       /в какие сроки/,
+      /когда.*забрать/,
+      /когда.*хотите.*машин/,
+      /когда.*хотите.*купить/,
+      /когда.*хотите.*забрать/,
+      /подскажите когда/,
+      /сроки? (хотите|планируете)/,
+      /когда машина нужна/,
+      /когда нужна машина/,
+      /в какие сроки.*купить/,
+      /когда готовы забрать/,
+      /когда готовы купить/,
+      /когда забирать/,
     ]},
     { type: 'how_pay', patterns: [
       /как планируете платит/,
-      /кредит или наличн/,
-      /наличные или кредит/,
+      /кредит.{0,20}или.{0,20}наличн/,
+      /наличн.{0,20}или.{0,20}кредит/,
       /форма оплаты/,
       /рассрочк[ау]/,
+      /кредит планируете/,
+      /наличные планируете/,
+      /наличными планируете/,
+      /будете.*в кредит/,
+      /покупать в кредит/,
+      /в кредит брать/,
+      /за наличные/,
+      /наличными платить/,
+      /кредит или нал/,
+      /как платить будете/,
+      /как будете платить/,
+      /оплата какая/,
+      /наличные или кредит/,
+      /кредит или наличные/,
+      /будете ли брать в кредит/,
     ]},
     { type: 'phone', patterns: [
       /оставьте (телефон|контакт)/,
@@ -131,33 +174,54 @@ function detectSellerQuestions(sellerText: string): SellerQuestion[] {
       /ваш (телефон|номер)/,
       /контактный телефон/,
       /номер для связи/,
+      /телефон (оставьте|назовите|продиктуйте)/,
+      /какой (телефон|номер)/,
+      /записать (телефон|номер)/,
     ]},
     { type: 'city', patterns: [
       /из какого вы города/,
       /в каком городе/,
       /где находитесь/,
       /ваш город/,
+      /вы откуда/,
+      /из какого города/,
+      /город (ваш|какой)/,
     ]},
     { type: 'experience', patterns: [
       /была ли машина раньше/,
       /какой опыт вожд/,
       /раньше что ездили/,
       /на чём раньше ездили/,
+      /какая машина была раньше/,
+      /раньше на чём ездили/,
+      /был ли автомобиль раньше/,
     ]},
     { type: 'test_drive', patterns: [
       /когда удобно на тест-драйв/,
       /тест-драйв когда/,
       /записать на тест-драйв/,
+      /тест-драйв.*когда/,
+      /когда.*тест-драйв/,
+      /на тест-драйв.*удобно/,
     ]},
     { type: 'color', patterns: [
       /какой цвет/,
       /цвет (хотите|предпочитаете)/,
+      /какой (цвет|окрас)/,
+      /цвет (вам|у вас)/,
     ]},
     { type: 'configuration', patterns: [
       /какая комплектация/,
+      /какие комплектации/,
       /комплектацию какую/,
+      /комплектации (вас|вам|какие)/,
       /передний или полный/,
       /механика или автомат/,
+      /какую комплектацию/,
+      /комплектации.*интересу/,
+      /какие комплектации вас интересуют/,
+      /какая комплектация вас интересует/,
+      /привод (какой|какой хотите)/,
     ]},
   ];
 
@@ -181,12 +245,20 @@ function detectSellerQuestions(sellerText: string): SellerQuestion[] {
 
 // ───────────────────────────────────────────────────────────────────────────
 // 3. ПРОВЕРКА — ответил ли бот на вопрос продавца
+//    Строгая: для yes/no вопросов требует конкретный ответ (да/нет/скорее).
+//    Если бот просто упоминает слово "кредит" в своём вопросе — НЕ считается ответом.
 // ───────────────────────────────────────────────────────────────────────────
 function botAnswersQuestion(botText: string, sellerQuestions: SellerQuestion[], scenario: any, selectedCar: any): boolean {
   if (sellerQuestions.length === 0) return true; // продавец не спрашивал — нечего отвечать
   const lower = botText.toLowerCase();
   const customerName = (scenario?.customerName || '').toLowerCase();
-  const carName = selectedCar ? `${selectedCar.brand} ${selectedCar.model}`.toLowerCase() : '';
+  const carBrand = selectedCar ? selectedCar.brand.toLowerCase() : '';
+  const carModel = selectedCar ? selectedCar.model.toLowerCase() : '';
+
+  // Помощник: содержит ли текст да/нет/конкретный ответ
+  const hasYesNo = /(^\s*да\b|\bда[,.!\s]|\bда\b)|(\bнет\b)|(\bскорее\b)|(\bнаверное\b)|(\bвозможно\b)|(\bдумаю\b)|(\bпока не\b)|(\bне решил\b)|(\bбез разниц|\bне важно)/.test(lower);
+  const hasAffirmation = /\b(да|конечно|обязательно|точно|угу|ага)\b/.test(lower);
+  const hasNegation = /\b(нет|не)\b/.test(lower);
 
   for (const q of sellerQuestions) {
     switch (q.type) {
@@ -194,53 +266,86 @@ function botAnswersQuestion(botText: string, sellerQuestions: SellerQuestion[], 
         // бот должен назвать своё имя
         if (!lower.includes('меня зовут') &&
             !lower.includes(`я ${customerName}`) &&
-            !lower.includes(customerName)) {
+            !(customerName && lower.includes(customerName))) {
           return false;
         }
         break;
+
       case 'car_interest':
         // бот должен назвать марку/модель
-        if (carName && !lower.includes(selectedCar.brand.toLowerCase()) &&
-            !lower.includes(selectedCar.model.toLowerCase())) {
+        if (carBrand && !lower.includes(carBrand) && !lower.includes(carModel)) {
+          // Если bot не назвал марку — fail
           return false;
         }
         break;
+
       case 'for_whom':
-        if (!lower.includes('семь') && !lower.includes('себе') && !lower.includes('жен') && !lower.includes('дет')) {
+        if (!lower.includes('семь') && !lower.includes('себе') &&
+            !lower.includes('жен') && !lower.includes('дет') &&
+            !lower.includes('один')) {
           return false;
         }
         break;
+
       case 'budget':
-        if (!lower.match(/\d|миллион|тысяч|млн|рубл/)) return false;
+        // Должна быть цифра или слово "миллион"/"тысяч"
+        if (!lower.match(/\d|миллион|млн|тысяч|рубл/)) return false;
         break;
+
       case 'trade_in':
-        if (!lower.includes('трейд') && !lower.includes('зачёт') && !lower.includes('сдать') &&
-            !lower.includes('нет') && !lower.includes('не')) return false;
+        // Yes/no — нужен конкретный ответ
+        if (!hasAffirmation && !hasNegation &&
+            !lower.includes('трейд') && !lower.includes('зачёт') &&
+            !lower.includes('сдать') && !lower.includes('обмен')) return false;
         break;
+
       case 'when_buy':
-        if (!lower.match(/скоро|на днях|через|месяц|недел|завтра|сегодня|пока не|не решил/)) return false;
+        // Должен назвать срок
+        if (!lower.match(/скоро|на днях|через|месяц|недел|завтра|сегодня|пока не|не решил|срочно|не срочно|в этом (месяц|год)/)) return false;
         break;
-      case 'how_pay':
-        if (!lower.match(/наличн|кредит|рассрочк|карт|наличные/)) return false;
+
+      case 'how_pay': {
+        // Yes/no — нужен конкретный ответ (да/нет) ИЛИ прямое указание "наличными"/"в кредит"
+        // НЕ считается если бот просто спросил "какие условия кредитования?" — это не ответ
+        const hasCashAnswer = /\b(наличн|нал\b|за нал)/.test(lower);
+        const hasCreditAnswer = /\b(в кредит|кредитом|взять кредит|возьму кредит)/.test(lower);
+        const hasOtherPayAnswer = /\b(рассрочк|карт)/.test(lower);
+        const hasQuestionMark = /\?/.test(lower);
+        if (!hasYesNo && !hasCashAnswer && !hasCreditAnswer && !hasOtherPayAnswer) {
+          return false;
+        }
+        // Если только упоминает "кредит" в вопросе без прямого ответа — fail
+        if (hasQuestionMark && !hasCashAnswer && !hasCreditAnswer && !hasOtherPayAnswer && !hasYesNo) {
+          return false;
+        }
         break;
+      }
+
       case 'phone':
-        if (!lower.match(/\d|телефон|набер|перезвон/)) return false;
+        if (!lower.match(/\d|телефон|набер|перезвон|оставлю|продиктую/)) return false;
         break;
+
       case 'city':
         if (!lower.match(/москва|питер|спб|мск|город|[а-я]{4,}/)) return false;
         break;
+
       case 'experience':
         // Опциональный вопрос — не блокируем
         break;
+
       case 'color':
-        if (!lower.match(/белый|чёрный|серый|синий|красный|цвет|без разниц|любой/)) return false;
+        if (!lower.match(/белый|чёрный|серый|синий|красный|цвет|без разниц|не важно|любой|все равно/)) return false;
         break;
+
       case 'configuration':
-        if (!lower.match(/передний|полный|механик|автомат|передне|задн|привод/)) return false;
+        // Должен назвать конкретную конфигурацию или "без разницы"
+        if (!lower.match(/передний|полный|механик|автомат|передне|задн|привод|комплектаци|люкс|стандарт|база|максимал|без разниц|не важно|любая|все равно|не принципиально/)) return false;
         break;
+
       case 'test_drive':
-        if (!lower.match(/тест-драйв|тест|приехать|заехать|когда можно/)) return false;
+        if (!lower.match(/тест-драйв|тест|приехать|заехать|когда можно|в субботу|в воскресенье|на выходн/)) return false;
         break;
+
       case 'other':
         // Не блокируем — слишком общий вопрос
         break;
@@ -430,6 +535,102 @@ function buildDynamicReminder(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// 7. FALLBACK CANNED-ОТВЕТ — если все перегенерации провалились.
+//    Гарантированно отвечает на вопрос продавца + переход к новой теме.
+// ───────────────────────────────────────────────────────────────────────────
+function generateFallbackAnswer(
+  sellerQuestions: SellerQuestion[],
+  history: ChatMessage[],
+  scenario: any,
+  selectedCar: any,
+): string {
+  const customerName = scenario?.customerName || 'Дмитрий';
+  const carName = selectedCar ? `${selectedCar.brand} ${selectedCar.model}` : 'Haval Jolion';
+
+  // Считаем что уже обсуждали
+  const allText = history.map(m => m.content.toLowerCase()).join(' ');
+  const mentioned: string[] = [];
+  if (/миллион|млн|\d{6}|от \d|цена|стоимость/.test(allText)) mentioned.push('цену');
+  if (/гаранти/.test(allText)) mentioned.push('гарантию');
+  if (/скидк|бонус/.test(allText)) mentioned.push('скидки');
+  if (/тест-драйв/.test(allText)) mentioned.push('тест-драйв');
+  if (/кредит|рассрочк/.test(allText)) mentioned.push('кредит');
+  if (/трейд|в зачёт/.test(allText)) mentioned.push('трейд-ин');
+  if (/срок[иу]|когда можно|приехать/.test(allText)) mentioned.push('сроки');
+  if (/комплектаци/.test(allText)) mentioned.push('комплектации');
+  if (/доставк/.test(allText)) mentioned.push('доставку');
+  if (/документ/.test(allText)) mentioned.push('документы');
+  if (/сервисн/.test(allText)) mentioned.push('сервис');
+
+  // Какой вопрос задал продавец — на него и отвечаем
+  const q = sellerQuestions[0];
+  let answer = '';
+
+  switch (q?.type) {
+    case 'name':
+      answer = `Меня зовут ${customerName}.`;
+      break;
+    case 'car_interest':
+      answer = `Меня интересует ${carName}.`;
+      break;
+    case 'for_whom':
+      answer = 'Для семьи.';
+      break;
+    case 'budget':
+      answer = 'Два миллиона примерно.';
+      break;
+    case 'trade_in':
+      answer = 'Да, есть старая машина, хочу сдать.';
+      break;
+    case 'when_buy':
+      answer = 'На этой неделе планирую.';
+      break;
+    case 'how_pay':
+      answer = 'Наличными скорее всего.';
+      break;
+    case 'phone':
+      answer = 'Запишите: девятьсот двадцать пять...';
+      break;
+    case 'city':
+      answer = 'Из Москвы.';
+      break;
+    case 'experience':
+      answer = 'Раньше на Ладе ездил.';
+      break;
+    case 'test_drive':
+      answer = 'На тест-драйв готов.';
+      break;
+    case 'color':
+      answer = 'Цвет не принципиален.';
+      break;
+    case 'configuration':
+      answer = 'Полный привод хотел бы.';
+      break;
+    default:
+      answer = 'Понятно.';
+  }
+
+  // Выбираем следующий вопрос — то что ещё не обсуждали
+  const nextQuestions: string[] = [];
+  if (!mentioned.includes('цену')) nextQuestions.push('Сколько стоит?');
+  if (!mentioned.includes('гарантию')) nextQuestions.push('Что с гарантией?');
+  if (!mentioned.includes('скидки')) nextQuestions.push('Скидки есть?');
+  if (!mentioned.includes('тест-драйв')) nextQuestions.push('Тест-драйв можно?');
+  if (!mentioned.includes('кредит')) nextQuestions.push('Кредит возможен?');
+  if (!mentioned.includes('трейд-ин')) nextQuestions.push('А трейд-ин?');
+  if (!mentioned.includes('сроки')) nextQuestions.push('Когда можно забрать?');
+  if (!mentioned.includes('комплектации')) nextQuestions.push('Какие комплектации есть?');
+  if (!mentioned.includes('доставку')) nextQuestions.push('Доставка есть?');
+  if (!mentioned.includes('сервис')) nextQuestions.push('Сервисное обслуживание?');
+
+  const nextQ = nextQuestions.length > 0
+    ? nextQuestions[Math.floor(Math.random() * Math.min(3, nextQuestions.length))]
+    : 'Когда можно подъехать?';
+
+  return `${answer} ${nextQ}`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // MAIN
 // ───────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
@@ -574,70 +775,95 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // ─── ПЕРЕГЕНЕРАЦИЯ ──────────────────────────────────────────────
+          // ─── ПЕРЕГЕНЕРАЦИЯ — до 3 попыток, потом fallback ───────────────
           if (needRegenerate) {
-            // Передаём вниз инфу, что начинаем пересоздавать
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: '\n' })}\n\n`));
 
-            // Готовим специфичное напоминание
-            let retryInstruction = '';
-            if (regenerateReason === 'seller_speech') {
-              retryInstruction = `[СТОП! Ты сказал фразу продавца: "${cleanText.slice(0, 80)}". Ты НЕ продавец, ты КЛИЕНТ. Перепиши как клиент: спроси, сомневайся, реагируй. Одна короткая фраза.]`;
-            } else if (regenerateReason === 'exact_repetition') {
-              retryInstruction = `[СТОП! Ты повторил свою прошлую реплику дословно. Скажи НОВОЕ — либо реакцию на слова продавца, либо новый вопрос про другую тему. Одна короткая фраза.]`;
-            } else if (regenerateReason === 'topic_repetition') {
-              retryInstruction = `[СТОП! Ты переспрашиваешь то, что уже обсуждали. НЕ переспрашивай. Реагируй на ответ продавца или задай НОВЫЙ вопрос про другую тему. Если хочешь вернуться к старой теме — сошлись на сказанное: "вы же говорили...". Одна короткая фраза.]`;
-            } else if (regenerateReason === 'unanswered_question') {
-              const qList = sellerQuestions.map(q => `"${q.raw}"`).join(', ');
-              retryInstruction = `[СТОП! Продавец задал вопрос(ы): ${qList}. Ты НЕ ответил на него. СНАЧАЛА ответь на вопрос продавца, ПОТОМ задай свой. Одна короткая фраза.]`;
+            let lastBadAnswer = cleanText;
+            let attemptsUsed = 0;
+            let success = false;
+
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              console.log(`[chat-stream] Попытка перегенерации #${attempt} (${regenerateReason})`);
+
+              // Специфичное напоминание — становится жёстче с попыткой
+              let retryInstruction = '';
+              const prefix = attempt === 1 ? 'СТОП' : attempt === 2 ? 'ОПЯТЬ ОШИБКА' : 'ПОСЛЕДНЯЯ ПОПЫТКА';
+
+              if (regenerateReason === 'seller_speech') {
+                retryInstruction = `[${prefix}! Ты сказал фразу продавца: "${lastBadAnswer.slice(0, 80)}". Ты НЕ продавец! Перепиши как КЛИЕНТ: спроси, сомневайся, реагируй. Одна короткая фраза.]`;
+              } else if (regenerateReason === 'exact_repetition') {
+                retryInstruction = `[${prefix}! Ты повторил свою прошлую реплику. Скажи НОВОЕ — реакцию на слова продавца или новый вопрос про другую тему. Одна короткая фраза.]`;
+              } else if (regenerateReason === 'topic_repetition') {
+                retryInstruction = `[${prefix}! Ты переспрашиваешь то, что уже обсуждали. Реагируй на ответ продавца или задай НОВЫЙ вопрос про другую тему. Одна короткая фраза.]`;
+              } else if (regenerateReason === 'unanswered_question') {
+                const qList = sellerQuestions.map(q => `"${q.raw}"`).join(', ');
+                // На 3-й попытке даём готовый пример ответа
+                const exampleHint = attempt >= 2
+                  ? ` Пример ответа: "${generateFallbackAnswer(sellerQuestions, messages, scenario, selectedCar).split(' ').slice(0, 4).join(' ')}..."`
+                  : '';
+                retryInstruction = `[${prefix}! Продавец задал вопрос(ы): ${qList}. Ты НЕ ответил. СНАЧАЛА ответь на вопрос продавца, ПОТОМ задай свой.${exampleHint} Одна короткая фраза.]`;
+              }
+
+              const retryMessages = [...llmMessages, {
+                role: 'assistant' as const,
+                content: lastBadAnswer,
+              }, {
+                role: 'user' as const,
+                content: retryInstruction,
+              }];
+
+              try {
+                const retryText = await createChatCompletion(retryMessages, { temperature: 0.6 + attempt * 0.1 });
+                lastBadAnswer = retryText;
+
+                // Проверки результата
+                let retryOk = retryText && retryText.length > 5 && retryText.length < 300;
+                if (retryOk && isSellerSpeech(retryText)) {
+                  console.warn(`[chat-stream] Попытка #${attempt}: снова речь продавца`);
+                  retryOk = false;
+                }
+                if (retryOk && isExactRepetition(retryText, messages)) {
+                  console.warn(`[chat-stream] Попытка #${attempt}: снова повтор`);
+                  retryOk = false;
+                }
+                if (retryOk && (regenerateReason === 'topic_repetition' || attempt > 1)) {
+                  const rep = checkRepetition(retryText, messages);
+                  if (rep.isRepeating) {
+                    console.warn(`[chat-stream] Попытка #${attempt}: снова повтор темы`);
+                    retryOk = false;
+                  }
+                }
+                if (retryOk && (regenerateReason === 'unanswered_question' || attempt > 1)) {
+                  const ans = botAnswersQuestion(retryText, sellerQuestions, scenario, selectedCar);
+                  if (!ans) {
+                    console.warn(`[chat-stream] Попытка #${attempt}: снова не ответил на вопрос`);
+                    retryOk = false;
+                  }
+                }
+
+                if (retryOk) {
+                  console.log(`[chat-stream] ✓ Перегенерация #${attempt} успешна (${regenerateReason})`);
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: retryText })}\n\n`));
+                  cleanText = retryText.replace('[[DIALOGUE_END]]', '').trim();
+                  if (retryText.includes('[[DIALOGUE_END]]')) dialogueEnd = true;
+                  success = true;
+                  attemptsUsed = attempt;
+                  break;
+                }
+              } catch (e) {
+                console.error(`[chat-stream] Попытка #${attempt} не удалась:`, e instanceof Error ? e.message : e);
+              }
             }
 
-            const retryMessages = [...llmMessages, {
-              role: 'assistant' as const,
-              content: cleanText,
-            }, {
-              role: 'user' as const,
-              content: retryInstruction,
-            }];
-
-            try {
-              const retryText = await createChatCompletion(retryMessages);
-
-              // Проверки результата перегенерации
-              let retryOk = retryText && retryText.length > 5;
-              if (retryOk && isSellerSpeech(retryText)) {
-                console.warn('[chat-stream] Перегенерация: снова речь продавца');
-                retryOk = false;
-              }
-              if (retryOk && isExactRepetition(retryText, messages)) {
-                console.warn('[chat-stream] Перегенерация: снова повтор');
-                retryOk = false;
-              }
-              if (retryOk && regenerateReason === 'topic_repetition') {
-                const rep = checkRepetition(retryText, messages);
-                if (rep.isRepeating) {
-                  console.warn('[chat-stream] Перегенерация: снова повтор темы');
-                  retryOk = false;
-                }
-              }
-              if (retryOk && regenerateReason === 'unanswered_question') {
-                const ans = botAnswersQuestion(retryText, sellerQuestions, scenario, selectedCar);
-                if (!ans) {
-                  console.warn('[chat-stream] Перегенерация: снова не ответил на вопрос');
-                  retryOk = false;
-                }
-              }
-
-              if (retryOk) {
-                console.log('[chat-stream] ✓ Перегенерация успешна (' + regenerateReason + ')');
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: retryText })}\n\n`));
-                cleanText = retryText.replace('[[DIALOGUE_END]]', '').trim();
-                if (retryText.includes('[[DIALOGUE_END]]')) dialogueEnd = true;
-              } else {
-                console.warn('[chat-stream] Перегенерация не прошла проверки, оставляем оригинал');
-              }
-            } catch (e) {
-              console.error('[chat-stream] Перегенерация не удалась:', e instanceof Error ? e.message : e);
+            // ─── FALLBACK: если все 3 попытки провалились — используем canned-ответ ─
+            if (!success) {
+              console.warn('[chat-stream] ⚠️ Все попытки провалились. Использую fallback canned-ответ.');
+              const fallback = generateFallbackAnswer(sellerQuestions, messages, scenario, selectedCar);
+              console.log('[chat-stream] Fallback ответ:', fallback);
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: fallback })}\n\n`));
+              cleanText = fallback.replace('[[DIALOGUE_END]]', '').trim();
+              if (fallback.includes('[[DIALOGUE_END]]')) dialogueEnd = true;
             }
           }
 
