@@ -40,6 +40,34 @@ function isSellerSpeech(text: string): boolean {
   return false;
 }
 
+// Проверка — повторяет ли бот уже заданный вопрос
+function isRepeatingQuestion(newText: string, previousMessages: Array<{ role: string; content: string }>): boolean {
+  const lower = newText.toLowerCase();
+  // Извлекаем вопросы из нового текста
+  const questionPatterns = [
+    /сколько стоит/, /какая цена/, /какая стоимость/, /цена выходит/,
+    /что с гарантией/, /какая гарантия/, /гарантия какая/,
+    /какие скидки/, /скидки есть/, /скидка/,
+    /тест-драйв можно/, /тест-драйв/,
+    /когда можно приехать/, /когда можно/, /сроки/,
+    /кредит/, /рассрочка/, /в зачёт/, /трейд-ин/,
+  ];
+
+  // Проверяем — задавал ли бот уже этот вопрос
+  const botMessages = previousMessages.filter(m => m.role === 'assistant');
+  for (const pattern of questionPatterns) {
+    if (pattern.test(lower)) {
+      // Проверяем — есть ли этот же вопрос в предыдущих репликах бота
+      for (const msg of botMessages) {
+        if (pattern.test(msg.content.toLowerCase())) {
+          return true; // Повтор!
+        }
+      }
+    }
+  }
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json();
@@ -96,10 +124,25 @@ export async function POST(req: NextRequest) {
           content: msg.content,
         });
       }
-      // Добавляем напоминание роли в конце — чтобы модель не забыла
+      // Добавляем напоминание роли + контекст в конце
+      const botMessages = messages.filter(m => m.role === 'assistant');
+      const askedTopics: string[] = [];
+      for (const m of botMessages) {
+        const lower = m.content.toLowerCase();
+        if (/сколько стоит|какая цена|цена/.test(lower)) askedTopics.push('цену');
+        if (/гаранти/.test(lower)) askedTopics.push('гарантию');
+        if (/скидк/.test(lower)) askedTopics.push('скидки');
+        if (/тест-драйв/.test(lower)) askedTopics.push('тест-драйв');
+        if (/кредит|рассрочк/.test(lower)) askedTopics.push('кредит');
+        if (/зачёт|трейд/.test(lower)) askedTopics.push('трейд-ин');
+        if (/срок|когда можно|приехать/.test(lower)) askedTopics.push('сроки');
+      }
+      const reminder = askedTopics.length > 0
+        ? `[ТЫ КЛИЕНТ. Не продавай. Спрашивай. Ты уже спрашивал: ${askedTopics.join(', ')}. НЕ повторяй эти вопросы. Задай НОВЫЙ вопрос или отреагируй на ответ продавца. Одна короткая реплика.]`
+        : '[ТЫ КЛИЕНТ. Не продавай. Спрашивай. Не предлагай решения. Одна короткая реплика клиента.]';
       llmMessages.push({
         role: 'user',
-        content: '[ТИ КЛИЕНТ. Не продавай. Спрашивай. Не предлагай решения. Не спрашивай "какую модель". Одна короткая реплика клиента.]',
+        content: reminder,
       });
     }
 
@@ -147,6 +190,31 @@ export async function POST(req: NextRequest) {
               }
             } catch (e) {
               console.error('[chat-stream] Перегенерация не удалась:', e instanceof Error ? e.message : e);
+            }
+          }
+
+          // ПРОВЕРКА 2: если бот повторяет уже заданный вопрос — перегенерируем
+          if (isRepeatingQuestion(cleanText, messages)) {
+            console.warn('[chat-stream] ⚠️ Обнаружен повтор вопроса! Перегенерация...');
+
+            const retryMessages2 = [...llmMessages, {
+              role: 'assistant' as const,
+              content: cleanText,
+            }, {
+              role: 'user' as const,
+              content: `[СТОП! Ты уже спрашивал это раньше. НЕ повторяй вопросы. Реагируй на слова продавца или задай НОВЫЙ вопрос про другое. Одна короткая реплика.]`,
+            }];
+
+            try {
+              const retryText2 = await createChatCompletion(retryMessages2);
+              if (retryText2 && !isRepeatingQuestion(retryText2, messages)) {
+                console.log('[chat-stream] ✓ Перегенерация (повтор) успешна');
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: retryText2 })}\n\n`));
+                cleanText = retryText2.replace('[[DIALOGUE_END]]', '').trim();
+                if (retryText2.includes('[[DIALOGUE_END]]')) dialogueEnd = true;
+              }
+            } catch (e) {
+              console.error('[chat-stream] Перегенерация (повтор) не удалась:', e instanceof Error ? e.message : e);
             }
           }
 
