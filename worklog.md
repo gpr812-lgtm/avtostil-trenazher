@@ -339,3 +339,83 @@ Stage Summary:
 - ✅ Self-correction: детектор → 2 попытки → fallback canned-ответ
 - ✅ Скорость ответа: 12-15 сек
 - URL: https://avtostil-trenazher.vercel.app
+
+---
+Task ID: fix-tts-shopper-memory-66
+Agent: main (Super Z)
+Task: "1. Голос как у робота 2. Оценка по шоперу не работает (500) 3. У робата нет памяти, переспрашивает"
+
+Work Log:
+АУДИТ 3 ПРОБЛЕМ:
+
+1. ГОЛОС РОБОТА:
+   - TTS использовал Python edge-tts + StressRNN
+   - На Vercel: spawn /usr/bin/python3 ENOENT (Python не установлен)
+   - Браузер падал на SpeechSynthesis — роботизированный голос
+   - Подтверждено: curl /api/tts-wav → 500 "spawn /usr/bin/python3 ENOENT"
+
+2. SHOPPER 500 ERROR:
+   - /api/shopper использовал z-ai-web-dev-sdk
+   - Z.AI SDK падал с fetch failed (та же проблема что у feedback ранее)
+   - Подтверждено: POST /api/shopper → 500
+
+3. ПАМЯТЬ ДИАЛОГА:
+   - Бот переспрашивал уже обсуждавшиеся темы
+   - Грамматические ошибки в речи
+
+ИСПРАВЛЕНИЯ (commit eae7878):
+
+1. TTS — ПОЛНЫЙ ПЕРЕХОД НА Node.js msedge-tts:
+   - npm install msedge-tts (v2.0.6)
+   - src/lib/tts-helper.ts полностью переписан:
+     * import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts'
+     * Голос: ru-RU-DmitryNeural (мужской русский, естественный)
+     * Скорость: +25% (как живая речь)
+     * applyAccents для ударений (Хавал → Ха́вал)
+     * tts.setMetadata() — асинхронный (открывает WebSocket)
+     * tts.toFile() — msedge-tts сам создаёт MP3
+     * Без Python, без ffmpeg
+   - src/app/api/tts-wav/route.ts:
+     * Возвращает MP3 (НЕ WAV) — браузеры поддерживают, не нужен ffmpeg
+     * Убран execFile('ffmpeg')
+     * Content-Type: audio/mpeg
+
+2. SHOPPER — ПЕРЕКЛЮЧЁН НА OpenRouter:
+   - src/app/api/shopper/route.ts:
+     * Был: import ZAI from 'z-ai-web-dev-sdk'
+     * Стал: import { createChatCompletion } from '@/lib/zai-direct'
+     * maxTokens: 2000, temperature: 0.4
+     * Логирование для отладки
+
+3. ПАМЯТЬ + ГРАММАТИКА — УСИЛЕНЫЙ ПРОМПТ:
+   - src/lib/prompts.ts:
+     * Расширен блок 'ПАМЯТЬ ДИАЛОГА — САМОЕ ВАЖНОЕ':
+       - Конкретные примеры禁忌 ('если назвал цену — НЕ спрашивай')
+       - Примеры правильных реакций ('сошлись на сказанное')
+     * Добавлен блок 'РУССКАЯ ГРАММАТИКА — ГОВОРИ ПРАВИЛЬНО':
+       - Падежи (по поводу вашего автомобиля, из Москвы, в субботу)
+       - Согласование (два миллиона, пять тысяч)
+       - Предлоги (в течение недели, насчёт)
+       - Ударения (звонит, квартал, договор)
+     * Добавлен список ВОЗМОЖНЫХ СЛЕДУЮЩИХ ВОПРОСОВ —
+       бот видит варианты и не повторяет уже заданные
+
+ТЕСТЫ НА PRODUCTION (https://avtostil-trenazher.vercel.app):
+1. TTS: HTTP 200, 7776 bytes MP3 (MPEG ADTS, layer III, 48 kbps, 24 kHz) ✓
+   - Голос: ru-RU-DmitryNeural (мужской, естественный)
+   - Без Python, без ffmpeg
+2. Shopper: HTTP 200, JSON с 12 критериями оценки ✓
+   - totalScore, percentage, summary, strengths, weaknesses, recommendations
+3. Chat-stream с длинной историей (12 реплик):
+   'Отлично. Какие документы нужны?' — бот НЕ переспрашивает цену/гарантию/
+   скидки/тест-драйв/кредит/сроки (всё уже обсуждалось) ✓
+
+ДЕПЛОЙ: git push origin main (с токеном) — Vercel автоматически собрал
+за ~3 минуты.
+
+Stage Summary:
+- ✅ Голос: роботизированный SpeechSynthesis → естественный DmitryNeural
+- ✅ Shopper: 500 error → работает через OpenRouter
+- ✅ Память: бот не переспрашивает, двигает диалог вперёд
+- ✅ Грамматика: добавлены правила падежей, согласования, ударений
+- Все 3 проблемы решены на production
