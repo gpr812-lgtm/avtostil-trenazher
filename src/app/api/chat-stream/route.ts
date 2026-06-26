@@ -745,9 +745,16 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Динамическое напоминание
-      const reminder = buildDynamicReminder(sellerQuestions, messages, scenario, selectedCar);
-      llmMessages.push({ role: 'user', content: reminder });
+      // Динамическое напоминание (кроме rude-customer — у него свой промпт)
+      if (scenario.id !== 'rude-customer') {
+        const reminder = buildDynamicReminder(sellerQuestions, messages, scenario, selectedCar);
+        llmMessages.push({ role: 'user', content: reminder });
+      } else {
+        llmMessages.push({
+          role: 'user',
+          content: '[ТЫ ГЕННАДИЙ — агрессивный клиент с матом. Требуй деньги обратно за битую машину. ОРИ на продавца, не отвечай на его вопросы вежливо. Одна короткая реплика с матом.]',
+        });
+      }
 
       console.log('[chat-stream] Вопросы продавца:', sellerQuestions.map(q => q.type).join(', ') || 'нет');
     }
@@ -775,6 +782,11 @@ export async function POST(req: NextRequest) {
           const sellerQuestions = lastSellerMessage
             ? detectSellerQuestions(lastSellerMessage.content)
             : [];
+
+          // Для rude-customer — ОТКЛЮЧАЕМ self-correction.
+          // Агрессивный клиент должен орать и требовать деньги,
+          // а не отвечать на вопросы продавца про цену/гарантию.
+          const isRudeCustomer = scenario.id === 'rude-customer';
 
           let needRegenerate = false;
           let regenerateReason = '';
@@ -804,7 +816,8 @@ export async function POST(req: NextRequest) {
           }
 
           // ─── ПРОВЕРКА 4: бот НЕ ответил на вопрос продавца ──────────────
-          if (!needRegenerate && sellerQuestions.length > 0) {
+          // (отключено для rude-customer — он не должен отвечать на вопросы)
+          if (!needRegenerate && !isRudeCustomer && sellerQuestions.length > 0) {
             const answered = botAnswersQuestion(cleanText, sellerQuestions, scenario, selectedCar);
             if (!answered) {
               console.warn('[chat-stream] ⚠️ Бот не ответил на вопрос продавца:', sellerQuestions.map(q => q.type).join(', '));

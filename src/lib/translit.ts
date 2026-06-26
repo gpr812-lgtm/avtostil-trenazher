@@ -1,38 +1,40 @@
 // Транслитерация английских брендов и моделей авто в русские эквиваленты
-// Применяется ПЕРЕД applyAccents, чтобы русские ударения работали корректно
+// Применяется ПЕРЕД TTS, чтобы русские голоса читали бренды правильно.
+// ВАЖНО: НЕ ставим ударения (U+0301) — Microsoft Edge TTS с DmitryNeural
+// сам отлично знает русские ударения. Combining accent ломает чтение.
 
 const brandMap: Record<string, string> = {
-  'Great Wall': 'Гре́йт Во́лл', Haval: 'Ха́вал', Chery: 'Чери́', Geely: 'Джи́ли',
-  Changan: 'Чанга́н', Tank: 'Танк', Exeed: 'Э́ксид', Jetour: 'Дже́тур',
-  Omoda: 'О́мода', Jaecoo: 'Дже́йку', BYD: 'БИ́ИДИ', BAIC: 'БА́ИК',
-  Dongfeng: 'Дунфэ́н', FAW: 'ФАВ', GAC: 'ГАК', Lifan: 'Лифа́н',
-  JAC: 'ДЖАК', MG: 'Э́МДЖИ', Voyah: 'Во́я', Hongqi: 'Ху́нци', Zeekr: 'Зи́кр',
-  Toyota: 'Тойо́та', Hyundai: 'Хё́ндай', Kia: 'Ки́а', Nissan: 'Ниса́н',
-  Mazda: 'Ма́зда', Honda: 'Хо́нда', Mitsubishi: 'Мицуби́си', Subaru: 'Суба́ру',
-  Suzuki: 'Сузу́ки', Lexus: 'Ле́ксус', Infiniti: 'Инфини́ти', BMW: 'БэМэВэ́',
-  Audi: 'А́уди', Mercedes: 'Мерсе́дес', Volkswagen: 'Фольксва́ген',
-  Skoda: 'Шко́да', Porsche: 'По́рше', Volvo: 'Во́льво', Jeep: 'Джип',
-  Renault: 'Рено́', Peugeot: 'Пежо́', Citroen: 'Ситрое́н', Fiat: 'Фиа́т',
-  Ford: 'Форд', Chevrolet: 'Шевроле́', Tesla: 'Те́сла', Genesis: 'Гене́зис',
+  'Great Wall': 'Грейт Волл', Haval: 'Хавал', Chery: 'Чери', Geely: 'Джили',
+  Changan: 'Чанган', Tank: 'Танк', Exeed: 'Эксид', Jetour: 'Джетур',
+  Omoda: 'Омода', Jaecoo: 'Джейку', BYD: 'БИИДИ', BAIC: 'БАИК',
+  Dongfeng: 'Дунфэн', FAW: 'ФАВ', GAC: 'ГАК', Lifan: 'Лифан',
+  JAC: 'ДЖАК', MG: 'ЭМДЖИ', Voyah: 'Воя', Hongqi: 'Хунци', Zeekr: 'Зикр',
+  Toyota: 'Тойота', Hyundai: 'Хёндай', Kia: 'Киа', Nissan: 'Ниссан',
+  Mazda: 'Мазда', Honda: 'Хонда', Mitsubishi: 'Мицубиси', Subaru: 'Субару',
+  Suzuki: 'Сузуки', Lexus: 'Лексус', Infiniti: 'Инфинити', BMW: 'БэМэВэ',
+  Audi: 'Ауди', Mercedes: 'Мерседес', Volkswagen: 'Фольксваген',
+  Skoda: 'Шкода', Porsche: 'Порше', Volvo: 'Вольво', Jeep: 'Джип',
+  Renault: 'Рено', Peugeot: 'Пежо', Citroen: 'Ситроен', Fiat: 'Фиат',
+  Ford: 'Форд', Chevrolet: 'Шевроле', Tesla: 'Тесла', Genesis: 'Генезис',
 };
 
 const modelMap: Record<string, string> = {
-  Jolion: 'Джо́лион', Dargo: 'Да́рго', 'F7x': 'ЭфСе́мьИкс', 'F7': 'ЭфСе́мь',
-  'H6': 'АшШе́сть', 'H9': 'АшДе́вять', 'M6': 'ЭмШе́сть',
-  Tiggo: 'Ти́гго', Arrizo: 'Арри́зо', Monjaro: 'Монджа́ро',
-  Coolray: 'Ку́лрей', Atlas: 'А́тлас', Tugella: 'Туге́лла', Emgrand: 'Эмгра́нд',
-  Creta: 'Кре́та', Sportage: 'Спорте́йдж', Seltos: 'Се́лтос', Sorento: 'Соре́нто',
-  Camry: 'Камри́', 'RAV4': 'РавЧеты́ре', Corolla: 'Коро́лла', Cruiser: 'Кру́зер', Prado: 'Пра́до',
-  Tiguan: 'Тигуа́н', Touareg: 'Туа́рег', Polo: 'По́ло', Octavia: 'Окта́вия',
-  Cayenne: 'Ка́йен', Macan: 'Мака́н',
+  Jolion: 'Джолион', Dargo: 'Дарго', 'F7x': 'ЭфСемьИкс', 'F7': 'ЭфСемь',
+  'H6': 'АшШесть', 'H9': 'АшДевять', 'M6': 'ЭмШесть',
+  Tiggo: 'Тигго', Arrizo: 'Арризо', Monjaro: 'Монджаро',
+  Coolray: 'Кулрей', Atlas: 'Атлас', Tugella: 'Тугелла', Emgrand: 'Эмгранд',
+  Creta: 'Крета', Sportage: 'Спортейдж', Seltos: 'Селтос', Sorento: 'Соренто',
+  Camry: 'Камри', 'RAV4': 'РавЧетыре', Corolla: 'Королла', Cruiser: 'Крузер', Prado: 'Прадо',
+  Tiguan: 'Тигуан', Touareg: 'Туарег', Polo: 'Поло', Octavia: 'Октавия',
+  Cayenne: 'Кайен', Macan: 'Макан',
 };
 
 const termMap: Record<string, string> = {
-  Pro: 'Про', Max: 'Макс', Plus: 'Плюс', Elite: 'Эли́т', Premium: 'Премиу́м',
-  Comfort: 'Ко́мфорт', Standard: 'Станда́рт', Base: 'Ба́за', Flagship: 'Флагма́н',
-  Sport: 'Спорт', Urban: 'Урба́н', Style: 'Стайл', Life: 'Лайф',
-  LED: 'ЛЭД', GPS: 'ДжиПиЭ́с', CVT: 'СВТ', 'test-drive': 'те́ст-дра́йв',
-  'trade-in': 'тре́йд-ин', business: 'би́знес', comfort: 'ко́мфорт',
+  Pro: 'Про', Max: 'Макс', Plus: 'Плюс', Elite: 'Элит', Premium: 'Премиум',
+  Comfort: 'Комфорт', Standard: 'Стандарт', Base: 'База', Flagship: 'Флагман',
+  Sport: 'Спорт', Urban: 'Урбан', Style: 'Стайл', Life: 'Лайф',
+  LED: 'ЛЭД', GPS: 'ДжиПиЭс', CVT: 'СВТ', 'test-drive': 'тест-драйв',
+  'trade-in': 'трейд-ин', business: 'бизнес', comfort: 'комфорт',
 };
 
 const allMaps: Record<string, string> = { ...brandMap, ...modelMap, ...termMap };

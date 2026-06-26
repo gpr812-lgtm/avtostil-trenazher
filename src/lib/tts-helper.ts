@@ -1,37 +1,31 @@
 import { transliterateForTTS } from '@/lib/translit';
-import { applyAccents } from '@/lib/accents';
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
-import { join, dirname } from 'path';
 
 /**
  * Универсальная функция TTS через msedge-tts (Node.js, без Python).
  *
  * Пайплайн:
  *   1. transliterateForTTS(text) — Haval → Хавал (бренды на русский)
- *   2. applyAccents(text) — расстановка ударений (Хавал → Ха́вал)
+ *   2. Очистка от артефактов LLM ([[DIALOGUE_END]] и т.п.)
  *   3. msedge-tts — синтез через Microsoft Edge TTS (DmitryNeural)
+ *
+ * ВАЖНО: НЕ применяем applyAccents (U+0301 combining character).
+ * Microsoft Edge TTS с DmitryNeural сам отлично знает русские ударения.
+ * Добавление U+0301 ломает чтение — бот коверкает слова.
  *
  * Голос: ru-RU-DmitryNeural — мужской русский, естественный тембр.
  *
  * outputPath — полный путь к MP3 файлу который нужно создать.
- *            msedge-tTS сам записывает файл через toFile().
+ *            msedge-tts сам записывает файл через toFile().
  */
 export async function generateTTSWithStress(
   text: string,
   outputPath: string,
   voice: string = 'ru-RU-DmitryNeural'
 ): Promise<void> {
-  // 1. Транслитерация брендов
+  // 1. Транслитерация брендов (Haval → Хавал) — БЕЗ ударений
   let processed = transliterateForTTS(text);
 
-  // 2. Расстановка ударений через словарь applyAccents
-  try {
-    processed = applyAccents(processed);
-  } catch (e) {
-    console.warn('[tts-helper] applyAccents failed, using plain text:', e instanceof Error ? e.message : e);
-  }
-
-  // 3. Очистка: убираем знаки которые плохо читаются
+  // 2. Очистка: убираем знаки которые плохо читаются
   processed = processed
     .replace(/\[\[DIALOGUE_END\]\]/g, '')
     .replace(/\s+/g, ' ')
@@ -39,20 +33,20 @@ export async function generateTTSWithStress(
 
   console.log(`[tts-helper] TTS: voice=${voice}, text="${processed.slice(0, 60)}..."`);
 
-  // 4. msedge-tts сам создаёт файл — даём ему директорию и имя
-  //    toFile(dirPath, input) создаёт файл с рандомным именем в dirPath
-  //    Потом переименовываем в нужный нам outputPath
+  // 3. msedge-tts сам создаёт файл — даём ему директорию
   const { rename, mkdir } = await import('fs/promises');
   const { existsSync } = await import('fs');
+  const { dirname } = await import('path');
   const dir = dirname(outputPath);
   if (!existsSync(dir)) await mkdir(dir, { recursive: true });
 
-  const tts = new MsEdgeTTS();
+  const tts = new (await import('msedge-tts')).MsEdgeTTS();
   try {
+    const { OUTPUT_FORMAT } = await import('msedge-tts');
     await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
     const result = await tts.toFile(dir, processed, {
-      rate: '+25%',
+      rate: '+25%',     // +25% — быстрее как живая речь
       volume: '+0%',
       pitch: '+0Hz',
     });
