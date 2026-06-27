@@ -643,3 +643,62 @@ Stage Summary:
 - ✅ Ответ ускорен с 24-60 сек до 3-5 сек
 - ✅ Убраны пустые модели (gpt-oss-20b, nemotron)
 - ✅ Добавлены таймауты (12-15 сек) — больше не зависает
+
+---
+Task ID: fix-response-delay-70
+Agent: main (Super Z)
+Task: "бот отвечает с большой задержкой, исправь"
+
+Work Log:
+ЗАМЕРЫ НА PRODUCTION:
+- API chat-stream: 3-5 сек (нормально)
+- API TTS: 2-3 сек (нормально)
+- НО пользователь слышит звук через 5-8 сек — большая задержка
+
+КОРНЕВАЯ ПРИЧИНА:
+TTS запускается ПОСЛЕ завершения стриминга чата:
+1. Стриминг чата: 3-5 сек (текст появляется постепенно)
+2. ПОТОМ TTS fetch: 2-3 сек
+3. ПОТОМ воспроизведение аудио
+Итого: 5-8 сек до звука.
+
+ИСПРАВЛЕНИЯ (commit 00da92e, src/app/page.tsx):
+
+1. PREWARM TTS — параллельная загрузка аудио:
+   - prewarmTTSCache (useRef<Map<string, Promise<Blob>>>) — кеш
+   - prewarmTTS(text) — запускает fetch /api/tts-wav сразу когда
+     текст достиг 30+ символов и заканчивается на [.?!]
+   - playTTSWithPrewarm(text) — если аудио уже в кеше, играет сразу
+     из готового blob. Иначе fallback на playNeuralTTS.
+   - onDelta callback в streamChat теперь вызывает prewarmTTS
+
+   Таймлайн:
+   - 0с: старт стриминга
+   - 1-2с: накоплен текст 30+ символов → prewarmTTS запускает fetch
+   - 3-5с: стриминг завершён, fullText готов
+   - 3-5с: playTTSWithPrewarm — аудио уже в кеше → мгновенное
+     воспроизведение
+   Итого: 3-5 сек до звука (было 5-8 сек)
+
+2. TTS TIMEOUT 15сек → 6сек:
+   - Если Edge TTS не ответил за 6 сек — fallback на SpeechSynthesis
+   - Раньше пользователь ждал 15 сек при зависании TTS
+
+3. Все 3 места вызова playTTS заменены на playTTSWithPrewarm:
+   - handleStartCall (opening message)
+   - handleSendMessage (текстовый ввод)
+   - handleLiveStart (живой режим)
+   - Тестовая кнопка оставлена с playTTS
+
+РЕЗУЛЬТАТ:
+- Chat-stream: 1.9-3.5 сек (измерено на production)
+- TTS: 2.3 сек (измерено на production)
+- С prewarm параллельно: пользователь слышит звук через 3-4 сек
+  (было 5-8 сек)
+- TTS timeout: 15сек → 6сек (быстрее fallback при сбое)
+
+Stage Summary:
+- ✅ Задержка до звука: 5-8 сек → 3-4 сек
+- ✅ TTS timeout: 15сек → 6сек
+- ✅ Production build: ✓ Compiled successfully
+- ✅ Production: https://avtostil-trenazher.vercel.app
