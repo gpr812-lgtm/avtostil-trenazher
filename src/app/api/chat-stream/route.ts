@@ -23,10 +23,12 @@ const MAX_HISTORY = 8; // увеличил с 6 до 8 — нужно помни
 
 // ───────────────────────────────────────────────────────────────────────────
 // 1. ДЕТЕКТОР РЕЧИ ПРОДАВЦА — если бот вдруг начал продавать
+//    Расширен: ловит "я могу помочь", советы, вежливые обороты, seller-вопросы
 // ───────────────────────────────────────────────────────────────────────────
 function isSellerSpeech(text: string): boolean {
   const lower = text.toLowerCase();
   const sellerPhrases = [
+    // Классические seller-фразы
     'у нас есть', 'мы предлагаем', 'у нас официальная', 'можем предложить',
     'давайте я вас', 'давайте уточним', 'какую модель вы рассматриваете',
     'это поможет рассчитать', 'примерный ежемесячный', 'при сроке кредита',
@@ -36,10 +38,49 @@ function isSellerSpeech(text: string): boolean {
     'я готов предложить', 'давайте подберём', 'сколько вы готовы',
     'какой бюджет вы рассматриваете', 'оформить кредит',
     'приглашаю на тест-драйв', 'приезжайте к нам',
+    // Помощь / консультация (bot как продавец)
+    'я могу помочь', 'могу помочь', 'чем могу помочь', 'чем помочь',
+    'помочь разобраться', 'помогу с выбором', 'помогу подобрать',
+    'я вас проконсультирую', 'давайте я расскажу',
+    // Советы / рекомендации (продавец даёт советы)
+    'обычно экономичнее', 'удобнее в городе', 'легче в обслуживании',
+    'комфорт в городе', 'больше пространства', 'проходимость',
+    'если планируете поездки', 'если планируете',
+    'я бы рекомендовал', 'я бы советовал', 'рекомендую',
+    'лучше подойдёт', 'подойдёт для', 'отличный выбор для',
+    // Seller-вопросы про предпочтения
+    'что бы вы предпочли', 'что вы предпочитаете', 'что вам важнее',
+    'какой вариант вам', 'какой вариант вас',
+    // Слишком вежливые обороты (бот как продавец)
+    'я вас прошу', 'пожалуйста, скажите', 'будьте добры',
+    'звучит обнадёживающе', 'звучит приемлемо', 'звучит неплохо',
+    'звучит интересно', 'звучит заманчиво',
+    // Пассивный залог (продавец)
+    'предоставляется', 'гарантируется', 'включается в стоимость',
+    'доступно в комплектации', 'доступен в комплектации',
+    // Презентация продукта
+    'оснащён', 'оснащен', 'комплектуется', 'оборудован',
+    'расход топлива', 'разгон до сотни', 'максимальная скорость',
+    'клиренс составляет', 'багажник составляет',
+    'мощность двигателя', 'объём двигателя', 'объем двигателя',
+    // Услуги салона
+    'доступна рассрочка', 'доступен кредит', 'программа трейд-ин',
+    'сервисное обслуживание', 'гарантийный сервис',
+    'записать на осмотр', 'записать на приёмку',
   ];
   for (const phrase of sellerPhrases) {
     if (lower.includes(phrase)) return true;
   }
+
+  // Дополнительная эвристика: если бот даёт совет с "обычно [прилагательное]"
+  // или "[сущ] удобнее/лучше" — это продавец
+  if (/обычно\s+\w+\s+(экономич|удобн|дешевл|надёжн|практичн)/.test(lower)) return true;
+  if (/\w+\s+(удобнее|лучше|экономичнее)\s+(в|для|на)/.test(lower)) return true;
+
+  // Если бот отвечает на вопрос "какой автомобиль" перечислением характеристик
+  // (это продавец) — клиент должен спрашивать цену, а не перечислять
+  if (/(мощность|расход|привод|коробка|кпп).{0,30}(мощность|расход|привод|коробка|кпп)/.test(lower)) return true;
+
   return false;
 }
 
@@ -834,12 +875,12 @@ export async function POST(req: NextRequest) {
             let attemptsUsed = 0;
             let success = false;
 
-            for (let attempt = 1; attempt <= 2; attempt++) {
+            for (let attempt = 1; attempt <= 1; attempt++) {
               console.log(`[chat-stream] Попытка перегенерации #${attempt} (${regenerateReason})`);
 
               // Специфичное напоминание — становится жёстче с попыткой
               let retryInstruction = '';
-              const prefix = attempt === 1 ? 'СТОП' : attempt === 2 ? 'ОПЯТЬ ОШИБКА' : 'ПОСЛЕДНЯЯ ПОПЫТКА';
+              const prefix = 'СТОП';
 
               if (regenerateReason === 'seller_speech') {
                 retryInstruction = `[${prefix}! Ты сказал фразу продавца: "${lastBadAnswer.slice(0, 80)}". Ты НЕ продавец! Перепиши как КЛИЕНТ: спроси, сомневайся, реагируй. Одна короткая фраза.]`;
@@ -849,10 +890,7 @@ export async function POST(req: NextRequest) {
                 retryInstruction = `[${prefix}! Ты переспрашиваешь то, что уже обсуждали. Реагируй на ответ продавца или задай НОВЫЙ вопрос про другую тему. Одна короткая фраза.]`;
               } else if (regenerateReason === 'unanswered_question') {
                 const qList = sellerQuestions.map(q => `"${q.raw}"`).join(', ');
-                // На 3-й попытке даём готовый пример ответа
-                const exampleHint = attempt >= 2
-                  ? ` Пример ответа: "${generateFallbackAnswer(sellerQuestions, messages, scenario, selectedCar).split(' ').slice(0, 4).join(' ')}..."`
-                  : '';
+                const exampleHint = ` Пример ответа: "${generateFallbackAnswer(sellerQuestions, messages, scenario, selectedCar).split(' ').slice(0, 4).join(' ')}..."`;
                 retryInstruction = `[${prefix}! Продавец задал вопрос(ы): ${qList}. Ты НЕ ответил. СНАЧАЛА ответь на вопрос продавца, ПОТОМ задай свой.${exampleHint} Одна короткая фраза.]`;
               }
 
@@ -865,7 +903,8 @@ export async function POST(req: NextRequest) {
               }];
 
               try {
-                const retryText = await createChatCompletion(retryMessages, { temperature: 0.6 + attempt * 0.1 });
+                // max_tokens 150 — короче = быстрее. temperature 0.5 — стабильнее.
+                const retryText = await createChatCompletion(retryMessages, { maxTokens: 150, temperature: 0.5 });
                 lastBadAnswer = retryText;
 
                 // Проверки результата
@@ -878,14 +917,14 @@ export async function POST(req: NextRequest) {
                   console.warn(`[chat-stream] Попытка #${attempt}: снова повтор`);
                   retryOk = false;
                 }
-                if (retryOk && (regenerateReason === 'topic_repetition' || attempt > 1)) {
+                if (retryOk && regenerateReason === 'topic_repetition') {
                   const rep = checkRepetition(retryText, messages);
                   if (rep.isRepeating) {
                     console.warn(`[chat-stream] Попытка #${attempt}: снова повтор темы`);
                     retryOk = false;
                   }
                 }
-                if (retryOk && (regenerateReason === 'unanswered_question' || attempt > 1)) {
+                if (retryOk && regenerateReason === 'unanswered_question') {
                   const ans = botAnswersQuestion(retryText, sellerQuestions, scenario, selectedCar);
                   if (!ans) {
                     console.warn(`[chat-stream] Попытка #${attempt}: снова не ответил на вопрос`);

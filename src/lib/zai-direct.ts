@@ -14,11 +14,10 @@ const OPENROUTER_API_KEY = KEY_PART_1 + KEY_PART_2 + KEY_PART_3 + KEY_PART_4 + K
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 // Список моделей для fallback — если основная упадёт с 429, пробуем следующую
+// Порядок: Qwen3 (лучший русский) → gpt-oss-120b (запасной)
 const MODELS = [
-  'openai/gpt-oss-120b:free',           // лучший русский (приоритет)
-  'qwen/qwen3-next-80b-a3b-instruct:free', // отлично знает русский
-  'openai/gpt-oss-20b:free',            // запасная
-  'nvidia/nemotron-nano-9b-v2:free',    // последняя запасная
+  'qwen/qwen3-next-80b-a3b-instruct:free', // лучший русский, быстрая
+  'openai/gpt-oss-120b:free',              // запасная, тоже хороша
 ];
 
 const HEADERS = {
@@ -52,6 +51,9 @@ export async function createChatCompletion(
   for (const model of MODELS) {
     try {
       console.log('[OpenRouter] Пробуем модель:', model);
+      // Таймаут 12 сек на модель — иначе зависаем на 60 сек
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: HEADERS,
@@ -63,7 +65,9 @@ export async function createChatCompletion(
           temperature,
           top_p: 0.85,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       console.log('[OpenRouter] HTTP статус:', response.status, 'для', model);
 
@@ -115,6 +119,9 @@ export async function* createChatCompletionStream(messages: ChatMessage[]): Asyn
   for (const model of MODELS) {
     try {
       console.log('[OpenRouter] Стрим модель:', model);
+      // Таймаут 15 сек на модель — стриминг может быть медленнее
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: HEADERS,
@@ -122,11 +129,13 @@ export async function* createChatCompletionStream(messages: ChatMessage[]): Asyn
           model,
           messages,
           stream: true,
-          max_tokens: 250,
+          max_tokens: 180,
           temperature: 0.3,
           top_p: 0.85,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (response.status === 429) {
         console.warn('[OpenRouter] 429, следующая модель');
@@ -175,15 +184,8 @@ export async function* createChatCompletionStream(messages: ChatMessage[]): Asyn
 
       if (gotContent) return; // Успех
 
-      // Стриминг не дал content — fallback на не-стриминговый
-      console.warn('[OpenRouter] Нет content в стриме, fallback на не-стриминг:', model);
-      const fullText = await createChatCompletion(messages);
-      if (fullText) {
-        gotContent = true;
-        yield fullText;
-        return;
-      }
-
+      // Стриминг не дал content — пробуем следующую модель
+      console.warn('[OpenRouter] Нет content в стриме:', model);
       lastError = new Error('Нет content от ' + model);
     } catch (err) {
       console.error('[OpenRouter] Ошибка стрима', model, ':', err instanceof Error ? err.message : err);
@@ -192,11 +194,11 @@ export async function* createChatCompletionStream(messages: ChatMessage[]): Asyn
     }
   }
 
-  // Последняя попытка — не-стриминговый режим
+  // Если все стрим-модели не сработали — одна попытка не-стримингового режима
   if (!gotContent) {
-    console.warn('[OpenRouter] Все стрим-модели не сработали, финальный fallback');
+    console.warn('[OpenRouter] Стриминг не сработал, финальная попытка не-стриминг');
     try {
-      const fullText = await createChatCompletion(messages);
+      const fullText = await createChatCompletion(messages, { maxTokens: 180 });
       if (fullText) {
         yield fullText;
         return;
