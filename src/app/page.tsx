@@ -220,7 +220,8 @@ export default function Home() {
       setIsNeuralPlaying(true);
       console.log(`[TTS-Neural] Fetching: "${text.slice(0, 50)}..."`);
 
-      // Timeout — если TTS не ответил за 15 сек, fallback на SpeechSynthesis
+      // Timeout — если TTS не ответил за 6 сек, fallback на SpeechSynthesis
+      // (было 15 сек — слишком долго, пользователь ждал)
       const ttsTimeout = setTimeout(() => {
         console.warn('[TTS-Neural] Timeout — fallback to SpeechSynthesis');
         setIsNeuralPlaying(false);
@@ -246,7 +247,7 @@ export default function Home() {
           u.onerror = () => setIsNeuralPlaying(false);
           window.speechSynthesis.speak(u);
         }
-      }, 15000);
+      }, 6000);
 
       fetch('/api/tts-wav?text=' + encodeURIComponent(text))
         .then((res) => {
@@ -347,6 +348,104 @@ export default function Home() {
       playNeuralTTS(text);
     },
     [playNeuralTTS]
+  );
+
+  // === PREWARM TTS ===
+  // Предзагрузка аудио: запускаем fetch TTS сразу как только есть текст,
+  // не дожидаясь окончания стриминга. Когда playTTS вызовут — аудио уже готово.
+  const prewarmTTSCache = useRef<Map<string, Promise<Blob>>>(new Map());
+  const prewarmTTS = useCallback((text: string) => {
+    if (!text || text.length < 5) return;
+    // Уже загружается?
+    if (prewarmTTSCache.current.has(text)) return;
+    // Ограничиваем кеш 5 элементами
+    if (prewarmTTSCache.current.size >= 5) {
+      const firstKey = prewarmTTSCache.current.keys().next().value;
+      if (firstKey) prewarmTTSCache.current.delete(firstKey);
+    }
+    console.log(`[TTS-Prewarm] Starting: "${text.slice(0, 40)}..."`);
+    const promise = fetch('/api/tts-wav?text=' + encodeURIComponent(text))
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .catch((err) => {
+        console.warn('[TTS-Prewarm] failed:', err);
+        // Удаляем из кеша чтобы можно было повторить
+        prewarmTTSCache.current.delete(text);
+        throw err;
+      });
+    prewarmTTSCache.current.set(text, promise);
+  }, []);
+
+  // Воспроизведение с prewarm: если аудио уже в кеше — играем сразу
+  const playTTSWithPrewarm = useCallback(
+    (text: string) => {
+      cancelTTS();
+      setIsNeuralPlaying(true);
+      console.log(`[TTS-Play] "${text.slice(0, 50)}..."`);
+
+      const cached = prewarmTTSCache.current.get(text);
+      if (cached) {
+        // Аудио уже загружается/загружено — играем сразу когда готово
+        console.log('[TTS-Play] Using prewarmed audio');
+        cached
+          .then(async (blob) => {
+            console.log(`[TTS-Play] Prewarmed blob: ${blob.size} bytes`);
+            try {
+              const arrayBuffer = await blob.arrayBuffer();
+              const w = window as any;
+              if (!w.__audioCtx) {
+                w.__audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              }
+              const audioCtx: AudioContext = w.__audioCtx;
+              if (audioCtx.state === 'suspended') await audioCtx.resume();
+              const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+              if (w.__ttsSource) {
+                try { w.__ttsSource.stop(); } catch {}
+                try { w.__ttsSource.disconnect(); } catch {}
+              }
+
+              const source = audioCtx.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(audioCtx.destination);
+              w.__ttsSource = source;
+
+              await new Promise<void>((resolve) => {
+                source.onended = () => {
+                  setIsNeuralPlaying(false);
+                  try { source.disconnect(); } catch {}
+                  if (w.__ttsSource === source) w.__ttsSource = null;
+                  resolve();
+                };
+                try { source.start(); } catch (e) {
+                  console.warn('[TTS-Play] start failed:', e);
+                  setIsNeuralPlaying(false);
+                  resolve();
+                }
+              });
+            } catch (err) {
+              console.warn('[TTS-Play] Web Audio failed, fallback to HTML5:', err);
+              const url = URL.createObjectURL(blob);
+              const audio = audioRef.current || new Audio();
+              audio.src = url;
+              audio.volume = 1;
+              audio.onended = () => { setIsNeuralPlaying(false); URL.revokeObjectURL(url); };
+              audio.onerror = () => { setIsNeuralPlaying(false); URL.revokeObjectURL(url); };
+              audio.play().catch(() => setIsNeuralPlaying(false));
+            }
+          })
+          .catch(() => {
+            // Prewarm не сработал — обычный playNeuralTTS
+            playNeuralTTS(text);
+          });
+      } else {
+        // Нет в кеше — обычный playNeuralTTS
+        playNeuralTTS(text);
+      }
+    },
+    [cancelTTS, playNeuralTTS]
   );
 
   // Остановить любую озвучку
@@ -510,6 +609,11 @@ export default function Home() {
                 : m
             )
           );
+          // PREWARM TTS: когда текст достаточно длинный и заканчивается на знак препинания,
+          // запускаем загрузку аудио параллельно со стримингом
+          if (ttsEnabled && delta.length > 30 && /[.?!]\s*$/.test(delta)) {
+            prewarmTTS(delta);
+          }
         }
       );
 
@@ -523,7 +627,8 @@ export default function Home() {
       setIsTyping(false);
 
       if (ttsEnabled && fullText) {
-        playTTS(fullText);
+        // Используем prewarm — аудио уже могло загрузиться во время стриминга
+        playTTSWithPrewarm(fullText);
       }
     } catch (err) {
       console.error('Start call error:', err);
@@ -536,7 +641,7 @@ export default function Home() {
       setIsCallActive(false);
       isCallActiveRef.current = false;
     }
-  }, [selectedScenario, ttsEnabled, playTTS, streamChat]);
+  }, [selectedScenario, ttsEnabled, playTTSWithPrewarm, prewarmTTS, streamChat]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {
@@ -583,6 +688,10 @@ export default function Home() {
                 m.id === clientMessageId ? { ...m, content: delta } : m
               )
             );
+            // PREWARM TTS: запускаем загрузку аудио до окончания стриминга
+            if (ttsEnabledRef.current && delta.length > 30 && /[.?!]\s*$/.test(delta)) {
+              prewarmTTS(delta);
+            }
           }
         );
 
@@ -590,9 +699,9 @@ export default function Home() {
         messagesRef.current = [...newMessages, finalClientMessage];
         setIsTyping(false);
 
-        // Озвучка реплики клиента
+        // Озвучка реплики клиента (с prewarm — быстрее)
         if (ttsEnabledRef.current && fullText) {
-          playTTS(fullText);
+          playTTSWithPrewarm(fullText);
         }
       } catch (err) {
         console.error('Send message error:', err);
@@ -605,7 +714,7 @@ export default function Home() {
         setIsTyping(false);
       }
     },
-    [playTTS, streamChat]
+    [playTTSWithPrewarm, prewarmTTS, streamChat]
   );
 
   // Живой разговор: авто-отправка по паузе, half-duplex с TTS
@@ -698,6 +807,10 @@ export default function Home() {
                   : m
               )
             );
+            // PREWARM TTS
+            if (ttsEnabled && delta.length > 30 && /[.?!]\s*$/.test(delta)) {
+              prewarmTTS(delta);
+            }
           }
         );
 
@@ -711,7 +824,7 @@ export default function Home() {
         setIsTyping(false);
 
         if (ttsEnabled && fullText) {
-          playTTS(fullText);
+          playTTSWithPrewarm(fullText);
         }
       } catch (err) {
         console.error('Live start error:', err);
@@ -731,7 +844,7 @@ export default function Home() {
     setTimeout(() => {
       liveConversation.start();
     }, 500);
-  }, [selectedScenario, isCallActive, ttsEnabled, playTTS, liveConversation, streamChat]);
+  }, [selectedScenario, isCallActive, ttsEnabled, playTTSWithPrewarm, prewarmTTS, liveConversation, streamChat]);
 
   const handleLiveStop = useCallback(() => {
     liveConversation.stop();
