@@ -14,10 +14,13 @@ const OPENROUTER_API_KEY = KEY_PART_1 + KEY_PART_2 + KEY_PART_3 + KEY_PART_4 + K
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 // Список моделей для fallback — если основная упадёт с 429, пробуем следующую
-// Порядок: Qwen3 (лучший русский) → gpt-oss-120b (запасной)
+// Порядок: Qwen3 (лучший русский) → gpt-oss-120b → gpt-oss-20b → nemotron
 const MODELS = [
   'qwen/qwen3-next-80b-a3b-instruct:free', // лучший русский, быстрая
   'openai/gpt-oss-120b:free',              // запасная, тоже хороша
+  'openai/gpt-oss-20b:free',               // лёгкая, быстрая
+  'nvidia/nemotron-nano-9b-v2:free',       // последняя запасная
+  'meta-llama/llama-3.3-70b-instruct:free', // ещё одна запасная
 ];
 
 const HEADERS = {
@@ -48,57 +51,66 @@ export async function createChatCompletion(
 
   let lastError: Error | null = null;
 
-  for (const model of MODELS) {
-    try {
-      console.log('[OpenRouter] Пробуем модель:', model);
-      // Таймаут 12 сек на модель — иначе зависаем на 60 сек
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
-      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: HEADERS,
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: false,
-          max_tokens: maxTokens,
-          temperature,
-          top_p: 0.85,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+  // 2 раунда попыток: если все модели дали 429 — подождать 1 сек и повторить
+  for (let round = 1; round <= 2; round++) {
+    for (const model of MODELS) {
+      try {
+        console.log(`[OpenRouter] Раунд ${round}, модель:`, model);
+        // Таймаут 10 сек на модель — иначе зависаем на 60 сек
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+          method: 'POST',
+          headers: HEADERS,
+          body: JSON.stringify({
+            model,
+            messages,
+            stream: false,
+            max_tokens: maxTokens,
+            temperature,
+            top_p: 0.85,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
 
-      console.log('[OpenRouter] HTTP статус:', response.status, 'для', model);
+        console.log('[OpenRouter] HTTP статус:', response.status, 'для', model);
 
-      if (response.status === 429) {
-        console.warn('[OpenRouter] 429 — модель занята, пробуем следующую:', model);
-        lastError = new Error(`Модель ${model} занята (429)`);
-        continue; // пробуем следующую модель
-      }
+        if (response.status === 429) {
+          console.warn('[OpenRouter] 429 — модель занята:', model);
+          lastError = new Error(`Модель ${model} занята (429)`);
+          continue; // пробуем следующую модель
+        }
 
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('[OpenRouter] HTTP error:', response.status, text.slice(0, 300));
-        lastError = new Error(`OpenRouter API HTTP ${response.status}: ${text.slice(0, 200)}`);
-        continue; // пробуем следующую
-      }
+        if (!response.ok) {
+          const text = await response.text();
+          console.error('[OpenRouter] HTTP error:', response.status, text.slice(0, 300));
+          lastError = new Error(`OpenRouter API HTTP ${response.status}: ${text.slice(0, 200)}`);
+          continue; // пробуем следующую
+        }
 
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content || '';
-      console.log('[OpenRouter] ✓ Модель:', model, '| Контент:', content.length, 'символов');
-      
-      if (!content) {
-        console.error('[OpenRouter] ✗ ПУСТОЙ ответ от', model);
-        lastError = new Error('Пустой ответ от ' + model);
+        const data = await response.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        console.log('[OpenRouter] ✓ Модель:', model, '| Контент:', content.length, 'символов');
+
+        if (!content) {
+          console.error('[OpenRouter] ✗ ПУСТОЙ ответ от', model);
+          lastError = new Error('Пустой ответ от ' + model);
+          continue;
+        }
+
+        return content;
+      } catch (err) {
+        console.error('[OpenRouter] Ошибка с моделью', model, ':', err instanceof Error ? err.message : err);
+        lastError = err instanceof Error ? err : new Error(String(err));
         continue;
       }
-      
-      return content;
-    } catch (err) {
-      console.error('[OpenRouter] Ошибка с моделью', model, ':', err instanceof Error ? err.message : err);
-      lastError = err instanceof Error ? err : new Error(String(err));
-      continue;
+    }
+
+    // Если первый раунд не сработал — подождать 1 сек перед вторым
+    if (round === 1) {
+      console.warn('[OpenRouter] Раунд 1 не сработал, ждём 1 сек перед раундом 2');
+      await new Promise((r) => setTimeout(r, 1000));
     }
   }
 

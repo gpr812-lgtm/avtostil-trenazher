@@ -961,9 +961,43 @@ export async function POST(req: NextRequest) {
           controller.close();
           console.log('[chat-stream] ✓ Готово:', cleanText.length, 'симв.');
         } catch (err) {
-          console.error('[chat-stream] ✗ Ошибка:', err instanceof Error ? err.message : err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : 'Stream error' })}\n\n`));
-          controller.close();
+          console.error('[chat-stream] ✗ Ошибка стрима:', err instanceof Error ? err.message : err);
+
+          // FALLBACK: если OpenRouter недоступен (429/таймаут) — canned-ответ
+          // вместо ошибки, чтобы бот всегда отвечал
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const isOverloadError = errMsg.includes('429') || errMsg.includes('недоступны') || errMsg.includes('timeout') || errMsg.includes('abort');
+
+          if (isOverloadError) {
+            console.warn('[chat-stream] ⚠️ OpenRouter перегружен, использую canned fallback');
+            const lastSellerMessage = [...messages].reverse().find(m => m.role === 'user');
+            const sellerQuestions = lastSellerMessage
+              ? detectSellerQuestions(lastSellerMessage.content)
+              : [];
+
+            let fallbackText: string;
+            if (messages.length === 0) {
+              // Opening message — простой canned ответ
+              const carName = selectedCar ? `${selectedCar.brand} ${selectedCar.model}` : 'автомобиль';
+              fallbackText = `Здравствуйте. Я по поводу ${carName}. Сколько стоит?`;
+            } else {
+              fallbackText = generateFallbackAnswer(sellerQuestions, messages, scenario, selectedCar);
+            }
+            console.log('[chat-stream] Canned fallback:', fallbackText);
+
+            // Проверяем не завершает ли продавец диалог ("до свидания", "всего доброго")
+            const lastSellerText = lastSellerMessage?.content.toLowerCase() || '';
+            if (/до свидания|всего доброго|пока|до встречи|всего хорош/.test(lastSellerText)) {
+              fallbackText = 'До свидания. Спасибо за консультацию.';
+            }
+
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: fallbackText })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, fullText: fallbackText, dialogueEnd: false })}\n\n`));
+            controller.close();
+          } else {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errMsg })}\n\n`));
+            controller.close();
+          }
         }
       },
     });

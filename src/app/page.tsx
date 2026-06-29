@@ -528,9 +528,12 @@ export default function Home() {
             const data = JSON.parse(dataStr);
             if (data.delta) {
               fullText += data.delta;
-              onDelta(fullText);
+              // Вырезаем маркер конца диалога из отображаемого текста
+              const cleanForDisplay = fullText.replace(/\[\[DIALOGUE_END\]\]/g, '').trim();
+              onDelta(cleanForDisplay);
             } else if (data.done) {
-              fullText = data.fullText || fullText;
+              // Сервер уже вырезал маркер, но на всякий случай
+              fullText = (data.fullText || fullText).replace(/\[\[DIALOGUE_END\]\]/g, '').trim();
               dialogueEnd = data.dialogueEnd || false;
             } else if (data.error) {
               throw new Error(data.error);
